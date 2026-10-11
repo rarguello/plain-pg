@@ -37,7 +37,9 @@ data:
     #!/bin/bash
     set -uo pipefail
 
-    log() { echo "[pg-failover][$(date -u +%FT%TZ)] $*"; }
+    # Los logs van a STDERR: `api()` se usa dentro de command substitutions y
+    # no queremos que un mensaje de error se mezcle con el cuerpo capturado.
+    log() { echo "[pg-failover][$(date -u +%FT%TZ)] $*" >&2; }
 
     SA=/var/run/secrets/kubernetes.io/serviceaccount
     API="https://kubernetes.default.svc"
@@ -86,12 +88,17 @@ data:
       curl -sS --connect-timeout 5 --max-time 15 --cacert "$CACERT" \
         -H "Authorization: Bearer $TOKEN" \
         "${API}/api/v1/namespaces/$NS/pods/$1" 2>/dev/null \
-        | grep -o '"uid":"[^"]*"' | head -1 | cut -d'"' -f4
+        | json_compact | grep -o '"uid":"[^"]*"' | head -1 | cut -d'"' -f4
     }
+
+    # La API puede devolver el JSON con indentacion (multilinea); se compacta
+    # antes de parsear con grep.
+    json_compact() { tr -d ' \n\r\t'; }
 
     # --- Rol declarado (siempre fresco) ------------------------------------
     role_field() {
-      printf '%s' "$CM_JSON" | grep -o "\"$1\":\"[^\"]*\"" | head -1 | cut -d'"' -f4
+      printf '%s' "$CM_JSON" | json_compact \
+        | grep -o "\"$1\":\"[^\"]*\"" | head -1 | cut -d'"' -f4
     }
 
     # --- PostgreSQL --------------------------------------------------------
@@ -105,6 +112,7 @@ data:
 
     list_pods() {
       api GET "/api/v1/namespaces/$NS/pods?labelSelector=app.kubernetes.io/name%3Dpostgresql,app.kubernetes.io/component%3Ddatabase" \
+        | json_compact \
         | grep -o "\"name\":\"${STS}-[0-9]*\"" \
         | sed -e 's/.*:"//' -e 's/"$//' | sort -u
     }

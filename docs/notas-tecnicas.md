@@ -69,6 +69,14 @@ pod: no alcanza con crear una policy vacía.)
 `touch` de ese archivo en cada arranque para que el `include` no falle; si no,
 PostgreSQL no arranca por "could not open configuration file".
 
+## La API de Kubernetes devuelve JSON con indentación
+
+Un `curl` "pelado" contra la API devuelve el JSON **multilínea** (`{\n  "kind": …`),
+a diferencia de `oc get --raw`. Si se parsea con `grep -o '"clave":"valor"'` no
+matchea nunca. El controlador de failover compacta la respuesta antes de parsear
+(`tr -d ' \n\r\t'`) y manda sus logs a **stderr** para no contaminar el cuerpo
+capturado en una command substitution.
+
 ## Timeouts de conexión
 
 Contra un primary aislado por red, una conexión TCP sin timeout puede tardar

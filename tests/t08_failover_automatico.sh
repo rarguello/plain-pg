@@ -64,9 +64,13 @@ wait_for 420 "el CronJob detecta la caida y hace failover" failover_happened
 NEW="$(primary_pod)"
 check_ne "el primary declarado cambio" "$PRIMARY" "$NEW"
 check_eq "el nuevo primary es la replica sana ($REPLICA)" "$REPLICA" "$NEW"
-check_eq "$REPLICA es primary" "f" "$(pod_in_recovery "$REPLICA")"
-wait_for 300 "$PRIMARY se re-siembra como replica" bash -c "[ \"\$(oc -n $NS get pod $PRIMARY -o jsonpath='{.status.containerStatuses[0].ready}')\" = true ]"
-check_eq "$PRIMARY quedo como standby" "t" "$(pod_in_recovery "$PRIMARY")"
+
+# El controlador cambia el rol y despues promueve (asincronico): hay que
+# esperar a que el pod termine de promoverse.
+is_primary() { [ "$(pod_in_recovery "$1")" = "f" ]; }
+is_standby() { [ "$(pod_in_recovery "$1")" = "t" ]; }
+wait_for 300 "$REPLICA termina de promoverse" is_primary "$REPLICA"
+wait_for 300 "$PRIMARY se re-siembra como replica" is_standby "$PRIMARY"
 wait_for 180 "la replicacion corre en el nuevo sentido" streaming "$REPLICA"
 
 IP_NEW="$(oc -n "$NS" get pod "$REPLICA" -o jsonpath='{.status.podIP}')"
@@ -101,9 +105,8 @@ EOF
 echo "  (failback a $PRIMARY y restauracion de la configuracion)"
 FORCE=1 "$ROOT_DIR/scripts/failover-manual.sh" "$PRIMARY" || c_fail "el failback fallo"
 check_eq "el ConfigMap vuelve a declarar $PRIMARY" "$PRIMARY" "$(primary_pod)"
-check_eq "$PRIMARY vuelve a ser primary" "f" "$(pod_in_recovery "$PRIMARY")"
-wait_for 300 "$REPLICA vuelve a ser standby" bash -c "[ \"\$(oc -n $NS get pod $REPLICA -o jsonpath='{.status.containerStatuses[0].ready}')\" = true ]"
-check_eq "$REPLICA vuelve a ser standby" "t" "$(pod_in_recovery "$REPLICA")"
+wait_for 300 "$PRIMARY vuelve a ser primary" is_primary "$PRIMARY"
+wait_for 300 "$REPLICA vuelve a ser standby" is_standby "$REPLICA"
 wait_for 180 "replicacion restablecida" streaming "$PRIMARY"
 
 oc -n "$NS" apply -k "$ROOT_DIR/manifests/overlays/lab" >/dev/null 2>&1
