@@ -3,95 +3,75 @@
 ## Deploy
 
 ```bash
-./scripts/deploy.sh                            # full (with automatic failover)
+./scripts/deploy.sh                                 # full (with automatic failover)
 ./scripts/deploy.sh manifests/overlays/lab-manual   # manual failover only
 ```
 
-`deploy.sh` applies the overlay with Kustomize, generates the Secret (with random
-passwords, outside git) and waits for the pods to be ready. It is idempotent.
+`deploy.sh` needs `oc` and, when it reapplies over an existing deployment, Python
+with PyYAML. It renders the overlay with Kustomize,
+generates the Secret (random passwords, outside git) and waits for the pods to be
+Ready. It is idempotent.
 
-## Verify
+On an existing deployment it does **not** apply the `postgresql-role` ConfigMap
+nor the `postgresql-rw`/`postgresql-ro` Services: that is operational state owned
+by the failover scripts, and applying it would silently revert a failover. The
+StatefulSet is applied server-side without `spec.replicas`, so `deploy.sh` never
+writes a replica count and a concurrent HPA scale is left alone. To change those
+values on a live cluster, patch them explicitly; to return to the initial primary,
+fail back with `./scripts/failover-manual.sh postgresql-0`.
+
+## Verify and connect
 
 ```bash
 ./scripts/verify-replication.sh
-```
-
-It does, in order: checks the roles, shows `pg_stat_replication`, verifies the
-lag, and writes a row on the primary to read it from the replica.
-
-By hand:
-
-```bash
 oc -n postgresql-lab get pods,pvc,svc
 oc -n postgresql-lab exec postgresql-0 -- psql -U postgres -c 'SELECT * FROM pg_stat_replication;'
-oc -n postgresql-lab exec postgresql-1 -- psql -U postgres -c 'SELECT pg_is_in_recovery();'   # t = replica
 ```
 
-## Connect
-
-The credentials are left in `secrets/postgresql-credentials.env` (not versioned).
+The credentials are in `secrets/postgresql-credentials.env` (not versioned).
 
 ```bash
 NS=postgresql-lab
-# app user (read/write)
-oc -n $NS exec -it postgresql-0 -- psql -h postgresql-rw -U app -d appdb
-# app user (read-only)
-oc -n $NS exec -it postgresql-1 -- psql -h postgresql-ro -U app -d appdb
-# superuser
-oc -n $NS exec -it postgresql-0 -- psql -h 127.0.0.1 -U postgres
+oc -n $NS exec -it postgresql-0 -- psql -h postgresql-rw -U app -d appdb   # writes
+oc -n $NS exec -it postgresql-1 -- psql -h postgresql-ro -U app -d appdb   # reads
+oc -n $NS exec -it postgresql-0 -- psql -h 127.0.0.1 -U postgres           # superuser
 ```
 
 ## Frequent tasks
 
 ```bash
-# Logs
 oc -n postgresql-lab logs -f postgresql-0
-oc -n postgresql-lab logs -f postgresql-1
-
-# Restart the replica (no impact on the app)
-oc -n postgresql-lab delete pod postgresql-1        # recreated and re-attached
-
-# Restart the primary (brief outage)
-oc -n postgresql-lab delete pod postgresql-0
-
-# Measure the replica lag
-oc -n postgresql-lab exec postgresql-0 -- psql -U postgres -tAc \
-  "SELECT pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn)) FROM pg_stat_replication;"
-
-# Add a replica (2 -> 3 pods)
-oc -n postgresql-lab scale statefulset postgresql --replicas=3
-
-# Back to 2 (the PVC of the removed pod is left orphaned; delete it if you do not want it)
-oc -n postgresql-lab scale statefulset postgresql --replicas=2
-oc -n postgresql-lab delete pvc pgdata-postgresql-2
-
-# Re-seed a broken replica (copies it again from the primary)
-./scripts/reseed-replica.sh postgresql-1
+oc -n postgresql-lab delete pod postgresql-1     # restart the replica (no impact)
+oc -n postgresql-lab delete pod postgresql-0     # restart the primary (brief outage)
+./scripts/backup-now.sh
+./scripts/reseed-replica.sh postgresql-1         # re-seed a broken replica
 ```
 
-## If the replica fell too far behind
+Add a replica with `oc scale sts postgresql --replicas=3`. Scaling back leaves the
+removed pod's PVC orphaned (`oc delete pvc pgdata-postgresql-N`). Do not scale by
+hand while an HPA owns `replicas` (see `scaling.md`).
 
-With asynchronous replication and no slots, the primary can recycle WAL the
-replica needed (warning in the logs: `requested WAL segment … has already been
-removed`). It is fixed by re-seeding:
+## Recovery
 
-```bash
-./scripts/reseed-replica.sh postgresql-1
-```
+- **Replica fell too far behind** (log: `requested WAL segment … has already been
+  removed`): `./scripts/reseed-replica.sh postgresql-1`.
+- **Failed promotion**: the declared state stays on the candidate and the
+  ex-primary is isolated. Finish it by hand (`oc delete pod <candidate>`) or roll
+  back explicitly. See `failover.md`.
+- **The primary and replica PVCs are both lost**: the dumps on the
+  `postgresql-backups` PVC are the only copy. Rebuild the cluster, recreate the app
+  database and roles, then load a dump into it. `restore-backup.sh` only restores
+  into a *new* database on a healthy cluster; it is not a disaster-recovery
+  procedure by itself.
 
-## Node maintenance
+## Sharp edges
 
-```bash
-oc adm drain <node> --ignore-daemonsets --delete-emptydir-data
-```
-
-The primary pod is rescheduled (outage of seconds to minutes); the replica
-re-attaches on its own when the primary returns.
-
-## Notes
-
-- The StatefulSet uses `updateStrategy: OnDelete`: changing the template restarts
-  nothing. To apply a change, delete the pods by hand (`postgresql-1` first, if you
-  want zero downtime).
-- An `oc apply` of the manifests does **not** touch the Secret: it is managed
-  with `scripts/generate-secret.sh`.
+- The real `PGDATA` is `/var/lib/pgsql/data/userdata`; the PVC mounts
+  `/var/lib/pgsql/data`.
+- Local connections (socket, `127.0.0.1`) are `trust`: from inside the pod no
+  password is needed. Remote connections require the password.
+- `oc apply` prints `configured` for the StatefulSet on every run even when
+  nothing changed (the `volumeClaimTemplates` status); check real idempotency with
+  the `resourceVersion`, not with that word.
+- `oc rollout status` does not work with `updateStrategy: OnDelete`; watch the
+  pods instead.

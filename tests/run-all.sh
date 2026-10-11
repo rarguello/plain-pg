@@ -13,12 +13,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR" || exit 1
 
 ALL=(t01 t02 t03 t04 t05 t06 t07 t08 t09 t10 t11 t12 t13 t14 t15 t16 t17 t18 t19 t20 t21 t22 t23)
-RAPIDO=(t01 t02 t03 t04 t05 t06 t09 t10 t12 t14 t18 t19 t21 t22)
+QUICK=(t01 t02 t03 t04 t05 t06 t09 t10 t12 t14 t18 t19 t21 t22)
 
 if [ "$#" -eq 0 ]; then
   SEL=("${ALL[@]}")
 elif [ "$1" = "quick" ]; then
-  SEL=("${RAPIDO[@]}")
+  SEL=("${QUICK[@]}")
 else
   SEL=("$@")
 fi
@@ -30,7 +30,7 @@ for t in "${SEL[@]}"; do
   f="$(ls "$ROOT_DIR"/tests/"$t"_*.sh 2>/dev/null | head -1)"
   if [ -z "$f" ]; then
     echo "== $t: not found"
-    RESULT+=("SKIP $t")
+    RESULT+=("FAIL $t (no such test)")
     continue
   fi
   echo

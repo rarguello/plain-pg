@@ -7,7 +7,7 @@
 #
 #   PRIMARY_POD   name of the pod that must be primary. The rest are replicas.
 #   AUTO_FAILOVER "true"/"false": enables/disables automatic failover
-#                 (read by the CronJob of the failover-automatico component).
+#                 (read by the CronJob of the automatic-failover component).
 #   FAILOVER_GRACE_SECONDS  how long to wait for the primary to come back
 #                 before declaring it down (read by the CronJob).
 #

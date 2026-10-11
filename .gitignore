@@ -1,8 +1,8 @@
-# Secretos generados localmente (nunca se versionan)
+# Locally generated secrets (never committed)
 secrets/
 *.secret.env
 .env
 
-# Salidas temporales de pruebas
+# Temporary test output
 tmp/
 *.log

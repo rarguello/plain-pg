@@ -7,7 +7,7 @@
 #   ./scripts/failover-manual.sh postgresql-1   # explicit candidate
 #   FORCE=1 ./scripts/failover-manual.sh      # no confirmation
 #
-# Order (fencing first, so that there are never two primaries at once):
+# Order (declare, repoint the Services, fence, then promote):
 #   0. Disables automatic failover while the operation lasts (if it was active)
 #      so that the CronJob does not interfere.
 #   1. ConfigMap PRIMARY_POD=<candidate>, with resourceVersion control.
@@ -41,6 +41,15 @@ if [ -z "$CANDIDATE" ]; then
 fi
 if [ "$CANDIDATE" = "$OLD" ]; then
   echo "ERROR: the candidate ($CANDIDATE) is already the declared primary." >&2
+  exit 1
+fi
+case "$CANDIDATE" in
+  postgresql-0|postgresql-1) ;;
+  *) echo "ERROR: only postgresql-0 or postgresql-1 can be primary; the HPA may remove higher ordinals." >&2
+     exit 1 ;;
+esac
+if [ "$(pod_in_recovery "$CANDIDATE")" != "t" ]; then
+  echo "ERROR: $CANDIDATE is not a reachable standby." >&2
   exit 1
 fi
 
@@ -195,12 +204,5 @@ fi
 
 echo
 echo "Failover complete: primary=$CANDIDATE  replica=$OLD (re-seeds itself)"
-
-# Safety net for the HPA: it scales down by removing the highest ordinals.
-if [ "${CANDIDATE##*-}" -ge 2 ]; then
-  echo "WARNING: the new primary is $CANDIDATE (ordinal >= 2)." >&2
-  echo "WARNING: if an HPA owns 'replicas', scaling down can remove that pod." >&2
-  echo "WARNING: fail back to postgresql-0 before letting the fleet shrink." >&2
-fi
 
 echo "Verify with: ./scripts/verify-replication.sh"

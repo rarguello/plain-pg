@@ -177,12 +177,12 @@ data:
       rw="$(svc_selector postgresql-rw)"
       ro="$(svc_selector postgresql-ro)"
       if [ "$cm" != "$1" ] || [ "$rw" != "$1" ] || [ "$ro" != "$2" ]; then
-        log "CRITICO: estado inconsistente tras revertir (CM=$cm rw=$rw ro=$ro)"
+        log "CRITICAL: inconsistent state after reverting (CM=$cm rw=$rw ro=$ro)"
         return 1
       fi
       # The real PostgreSQL role must also be correct.
       if ! is_primary_ok "$1"; then
-        log "CRITICO: tras revertir, $1 NO responde como primary. Intervencion requerida."
+        log "CRITICAL: after reverting, $1 does NOT answer as primary. Intervention required."
         return 1
       fi
       return 0
@@ -233,6 +233,9 @@ data:
       local p
       for p in $(list_pods); do
         [ "$p" = "$1" ] && continue
+        # The HPA may remove higher ordinals on scale-down. Keep the primary
+        # on one of the two permanent pods even when more replicas exist.
+        case "$p" in postgresql-0|postgresql-1) ;; *) continue ;; esac
         if is_standby_ok "$p"; then echo "$p"; return 0; fi
       done
       return 1
@@ -318,11 +321,6 @@ data:
         sleep 10; t=$((t + 10))
         if is_primary_ok "$candidate"; then
           log "FAILOVER OK: primary=${candidate} (ex-primary ${primary} re-seeds itself)"
-          if [ "${candidate##*-}" -ge 2 ]; then
-            log "WARNING: the new primary is ${candidate} (ordinal >= 2)."
-            log "WARNING: if an HPA owns replicas, scaling down can remove that pod."
-            log "WARNING: fail back to postgresql-0 before letting the fleet shrink."
-          fi
           return 0
         fi
       done

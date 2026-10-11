@@ -21,9 +21,14 @@ START_REPLICAS="$(oc -n "$NS" get sts postgresql -o jsonpath='{.spec.replicas}')
 HAD_HPA=0
 oc -n "$NS" get hpa postgresql-read >/dev/null 2>&1 && HAD_HPA=1
 echo "  starting state: replicas=$START_REPLICAS hpa=$HAD_HPA"
+if [ "$HAD_HPA" = 1 ] || [ "$START_REPLICAS" != 2 ] || [ "$PRIMARY" != postgresql-0 ]; then
+  c_skip "t23 requires two pods, primary postgresql-0, and no existing HPA"
+  t_summary
+  exit $?
+fi
 
 echo "  (deploying the read-scaling component)"
-oc apply -k "$ROOT_DIR/manifests/overlays/lab-autoscale" >/dev/null 2>&1
+env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$ROOT_DIR/manifests/overlays/lab-autoscale" >/dev/null
 check "the HPA exists" oc -n "$NS" get hpa postgresql-read
 check_eq "minReplicas is 2" "2" \
   "$(oc -n "$NS" get hpa postgresql-read -o jsonpath='{.spec.minReplicas}' 2>/dev/null)"

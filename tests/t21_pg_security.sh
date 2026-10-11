@@ -22,7 +22,7 @@ check "the replica rejects DDL (CREATE TABLE)" ddl_fails "$REPLICA"
 
 # pg_hba: REMOTE connections (from another pod) must ask for a password.
 # Local ones (127.0.0.1) stay at 'trust' by initdb default: it is equivalent to
-# having a shell in the container (see docs/technical-notes.md).
+# having a shell in the container (see docs/operations.md).
 HBA="$(oc -n "$NS" exec "$PRIMARY" -- cat "$PGDATA_PATH/pg_hba.conf" 2>/dev/null)"
 hba_remote_without_trust() {
   ! printf '%s\n' "$HBA" | grep -E '^host' | grep -vE '127\.0\.0\.1|::1' | grep -qw trust
@@ -31,7 +31,7 @@ check "pg_hba does not allow 'trust' on remote connections" hba_remote_without_t
 
 # The superuser must not get in FROM ANOTHER POD without the correct password.
 remote_wrong_password_fails() {
-  ! oc -n "$NS" exec "$REPLICA" -- env PGPASSWORD=incorrecta psql \
+  ! oc -n "$NS" exec "$REPLICA" -- env PGPASSWORD=wrong_password psql \
       -h "${PRIMARY}.postgresql-hl.${NS}.svc.cluster.local" -U postgres \
       -d postgres -tAc 'SELECT 1' >/dev/null 2>&1
 }

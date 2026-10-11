@@ -5,11 +5,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib-test.sh"
 echo "### t09 idempotency"
 
 OVERLAY="$ROOT_DIR/manifests/overlays/lab"
+if oc -n "$NS" get hpa postgresql-read >/dev/null 2>&1; then
+  c_skip "an HPA owns replicas; run this test without the read-scaling component"
+  t_summary
+  exit $?
+fi
 
 # resourceVersion of the key objects: it is the real idempotency signal.
 # (The word "configured/unchanged" from `oc apply` is not used: for a
 #  StatefulSet with volumeClaimTemplates, kubectl/oc always prints
-#  "configured" even when nothing changes. See docs/technical-notes.md.)
+#  "configured" even when nothing changes. See docs/operations.md.)
 key_rvs() {
   local r rv
   for r in sts/postgresql svc/postgresql-hl svc/postgresql-rw svc/postgresql-ro \
@@ -22,9 +27,9 @@ key_rvs() {
 }
 
 # Sync the state with the repo before measuring.
-oc apply -k "$OVERLAY" >/dev/null 2>&1
+env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$OVERLAY" >/dev/null
 BEFORE="$(key_rvs)"
-oc apply -k "$OVERLAY" >/dev/null 2>&1
+env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$OVERLAY" >/dev/null
 AFTER="$(key_rvs)"
 check_eq "a second apply modifies no object (stable resourceVersion)" "$BEFORE" "$AFTER"
 

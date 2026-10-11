@@ -1,13 +1,9 @@
 # plain-pg
 
-**PostgreSQL with a hot replica on OpenShift, using plain Kubernetes objects.
-No operator, no CRDs, no console.**
-
-A StatefulSet with 2 pods: `postgresql-0` is the primary, `postgresql-1` a hot
-standby. The image is **PostgreSQL 18 on UBI**
-(`registry.redhat.io/rhel10/postgresql-18`), pinned by digest. Which pod is
-primary is decided by a ConfigMap, so promoting a replica is changing a value
-and recreating pods — no controller required.
+PostgreSQL streaming replication on OpenShift with plain Kubernetes objects: no
+operator, no CRDs, no console. A two-pod StatefulSet where the `postgresql-role`
+ConfigMap decides which pod is primary, so a failover is changing a value and
+recreating pods.
 
 ```
 writes ──▶ postgresql-rw ──▶ postgresql-0  [PRIMARY]  ──▶ PVC pgdata-postgresql-0
@@ -21,118 +17,71 @@ CronJob postgresql-failover ──▶ promotes a replica if the primary stops an
 HPA postgresql-read         ──▶ grows the read fleet under load (optional)
 ```
 
-## What it is
+## How the role works
 
-- Native PostgreSQL streaming replication, configured by scripts.
-- It reuses Red Hat's image machinery (`run-postgresql`, its hooks,
-  `ENABLE_REPLICATION`): `initdb` and user creation are not reimplemented.
-- Four Services: `-rw` (primary), `-r` (all instances, load-balanced reads),
-  `-ro` (replica), `-hl` (per-pod DNS).
-- **Manual failover** documented, plus an **optional** automatic failover
-  CronJob with verifiable pod-level fencing.
-- **Logical backups** (`pg_dump`/`pg_dumpall`) with retention and a verified
-  restore path.
-- **Optional read autoscaling** (HPA) that pairs with `postgresql-r`.
-- Kustomize overlays, a `Makefile`, and a test suite that runs against a real
-  cluster.
+`postgresql-0` is primary by convention, not by code. On startup each pod reads
+`PRIMARY_POD` and, if it matches its own name, starts as primary; otherwise it
+starts as a replica of the named pod. There is no leader election: the role is an
+explicit value you change on purpose.
 
-## What it is not
+The entrypoint also brings `PGDATA` to the assigned role:
 
-- **Not an operator.** No CRDs, no continuous reconciliation, no console. If you
-  need that, use [CloudNativePG](https://cloudnative-pg.io/) or another operator
-  — see [docs/comparison.md](docs/comparison.md) for an honest side-by-side.
-- **Not PITR.** Backups are logical dumps; there is no WAL archiving.
-- **Not production-grade HA.** The automatic failover fences at the *pod* level,
-  which is not STONITH: a node partition can still produce two primaries. Reads
-  from a replica can also lag, and an async failover can lose the last
-  unreplicated transactions. Read [docs/failover.md](docs/failover.md) before
-  trusting it with anything that matters.
-- **No consensus leader election.** The primary is whoever the ConfigMap says.
+| desired | `PGDATA` holds | action |
+|---|---|---|
+| primary | empty | `initdb` + user creation (done by the image) |
+| primary | standby | delete `standby.signal` → promote |
+| replica | empty | `pg_basebackup` from the primary |
+| replica | primary | wipe and re-seed |
+| replica | standby | start and refresh `primary_conninfo` |
+
+So recovering a pod is "delete it and it fixes itself", and a failover is "change
+the role and recreate the pods".
 
 ## Quick start
 
-You need `oc` (or `kubectl`) logged into a cluster, and `git`. Nothing else.
+You need `oc` logged into a cluster, `git`, and Python with PyYAML (the last one
+only when re-applying over an existing deployment).
 
 ```bash
-git clone https://github.com/<you>/plain-pg.git && cd plain-pg
-
+git clone https://github.com/rarguello/plain-pg.git && cd plain-pg
 ./scripts/deploy.sh              # full overlay (with automatic failover)
 ./scripts/verify-replication.sh  # checks the replica is up to date
 ```
 
-There is a `Makefile` too: `make deploy`, `make verify`, `make lint`,
-`make test-quick`, `make test`.
+Manual failover only (no failover CronJob):
+`./scripts/deploy.sh manifests/overlays/lab-manual`.
 
-Reads-only + manual failover (no failover CronJob):
+Tear down: `./scripts/teardown.sh` (keeps the namespace) or `./scripts/teardown.sh --all`.
+There is a `Makefile`: `make deploy`, `verify`, `lint`, `test-quick`, `test`.
 
-```bash
-./scripts/deploy.sh manifests/overlays/lab-manual
-```
+## Limits
 
-Tear down:
+Read this before trusting it with data that matters.
 
-```bash
-./scripts/teardown.sh        # resources, PVCs and the Secret (keeps the namespace)
-./scripts/teardown.sh --all  # the whole namespace
-```
+| Limit | Consequence |
+|---|---|
+| Fencing is pod-level, not STONITH | a node partitioned from the API server can leave two primary processes |
+| Replication is asynchronous | a failover can lose the last unreplicated transactions |
+| Backups are logical (`pg_dump`), no WAL archiving | no point-in-time recovery; the copies live in the cluster |
+| No operator, no consensus | failover is manual or a best-effort CronJob, not automatic HA |
 
-## Using it
-
-```bash
-# writes (always the primary)
-psql "postgresql://app:PASS@postgresql-rw.postgresql-lab.svc:5432/appdb"
-
-# reads, spread over all instances
-psql "postgresql://app:PASS@postgresql-r.postgresql-lab.svc:5432/appdb"
-
-# reads, replica only
-psql "postgresql://app:PASS@postgresql-ro.postgresql-lab.svc:5432/appdb"
-
-# replication status
-oc -n postgresql-lab exec postgresql-0 -- psql -U postgres -c 'SELECT * FROM pg_stat_replication;'
-
-# backups
-./scripts/backup-now.sh
-./scripts/restore-backup.sh /backups/<file>.dump my_restored_db
-
-# failover
-./scripts/failover-manual.sh
-
-# read load + autoscaling demo
-./scripts/deploy.sh manifests/overlays/lab-autoscale
-./scripts/read-load.sh 180 12
-```
+If you need automatic failover you can trust under node partitions, or PITR, use
+an operator (CloudNativePG, Crunchy, Zalando) or Patroni instead of this.
 
 ## Documentation
 
-| Document | Contents |
-|---|---|
-| [docs/architecture.md](docs/architecture.md) | How it works inside, and why |
-| [docs/operations.md](docs/operations.md) | Deploy, verify, day-to-day tasks |
-| [docs/failover.md](docs/failover.md) | Manual and automatic failover, limits |
-| [docs/backups.md](docs/backups.md) | Backups, retention, restore |
-| [docs/scaling.md](docs/scaling.md) | Read balancing and the HPA |
-| [docs/scenarios.md](docs/scenarios.md) | "What happens if…" matrix |
-| [docs/use-cases.md](docs/use-cases.md) | When to use it and when not |
-| [docs/comparison.md](docs/comparison.md) | Side-by-side with the popular operators |
-| [docs/tests.md](docs/tests.md) | How to run the test suite, and results |
-| [docs/technical-notes.md](docs/technical-notes.md) | Sharp edges (multi-arch digest, `oc apply`, …) |
+- [docs/operations.md](docs/operations.md) — deploy, verify, connect, restart, re-seed
+- [docs/failover.md](docs/failover.md) — manual and automatic failover, limits
+- [docs/backups.md](docs/backups.md) — backups and restore
+- [docs/scaling.md](docs/scaling.md) — reads and the HPA
+- [docs/tests.md](docs/tests.md) — the test suite
+- [docs/evidence/](docs/evidence/) — raw output of suite runs
 
 ## Layout
 
 ```
-manifests/
-  base/                 shared objects (kustomize)
-  components/           optional add-ons (automatic failover, read scaling)
-  overlays/lab/         full deployment            (postgresql-lab)
-  overlays/lab-manual/  manual failover only
-  overlays/lab-autoscale/  lab + HPA
-scripts/                deploy, teardown, verify, failover, backup, restore, read-load
-tests/                  test suite (t01…t23) + runner
-tools/                  static validation of the embedded scripts
-docs/                   documentation
+manifests/  base + components + overlays      scripts/  deploy, failover, backup, restore, ...
+tests/      suite t01..t23 + runner           tools/    static validation of embedded scripts
 ```
-
-## License
 
 MIT. See [LICENSE](LICENSE).

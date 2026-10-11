@@ -10,7 +10,7 @@ resources:
   - ../../base
 
 components:
-  - ../../components/failover-automatico
+  - ../../components/automatic-failover
 
 # Enable automatic failover in the role ConfigMap.
 patches:
