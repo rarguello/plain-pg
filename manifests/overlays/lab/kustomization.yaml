@@ -7,7 +7,6 @@ kind: Kustomization
 namespace: pg-ha-lab
 
 resources:
-  - namespace.yaml
   - ../../base
 
 components:

@@ -47,6 +47,20 @@ y vuelve a desplegar desde cero.
 - StorageClass por defecto con `WaitForFirstConsumer` (para que el PVC de backup
   se ligue al primer uso).
 
+## Validación estática (sin cluster)
+
+Antes de correr nada contra un cluster, se puede validar la sintaxis de los
+scripts embebidos en los ConfigMaps y el render de kustomize:
+
+```bash
+oc kustomize manifests/overlays/lab > /tmp/lab.yaml
+oc kustomize manifests/overlays/lab-manual > /tmp/lab-manual.yaml
+tools/check-scripts.py /tmp/lab.yaml /tmp/lab-manual.yaml
+shellcheck -S warning scripts/*.sh tests/*.sh
+```
+
+Eso es lo que corre el CI (`.github/workflows/lint.yml`) en cada push.
+
 ## Resultados
 
 Ver [evidencia/](evidencia/) para las corridas registradas.

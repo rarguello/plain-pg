@@ -5,6 +5,7 @@ kind: Kustomization
 # Se usa siempre a traves de un overlay (overlays/lab, overlays/lab-manual).
 
 resources:
+  - namespace.yaml
   - configmap-scripts.yaml
   - configmap-role.yaml
   - configmap-backup-scripts.yaml
