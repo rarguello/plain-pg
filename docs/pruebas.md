@@ -39,7 +39,7 @@ y vuelve a desplegar desde cero.
 | `t18_imagen` | El digest fijado coincide con el del registro y con el de los pods |
 | `t19_selectores` | Regresión: los pods auxiliares no colisionan con los selectores de los Services |
 | `t20_reinicio_total` | Tras un failover, recrear **los dos** pods a la vez deja los roles correctos (sin deadlock de `Parallel`) |
-| `t21_seguridad_pg` | El usuario de la app no es superusuario; la réplica rechaza DDL; `pg_hba` sin `trust`; el superusuario exige password |
+| `t21_seguridad_pg` | El usuario de la app no es superusuario; la réplica rechaza DDL; desde otro pod la password es obligatoria |
 
 ## Requisitos
 
@@ -64,4 +64,31 @@ Eso es lo que corre el CI (`.github/workflows/lint.yml`) en cada push.
 
 ## Resultados
 
-Ver [evidencia/](evidencia/) para las corridas registradas.
+Última corrida completa en el laboratorio (OpenShift 4.21, SNO
+`sno.virt.daytwo.dev`): **21/21 tests, 214 comprobaciones, 0 fallos, ~15 min.**
+
+| Test | PASS |
+|---|---|
+| t01 despliegue | 29 |
+| t02 roles | 11 |
+| t03 replicación | 7 |
+| t04 services | 8 |
+| t05 config | 13 |
+| t06 persistencia | 11 |
+| t07 failover manual (ida y vuelta) | 18 |
+| t08 failover automático | 12 |
+| t09 idempotencia | 4 |
+| t10 seguridad | 16 |
+| t11 teardown y re-despliegue | 11 |
+| t12 backups y restore | 11 |
+| t13 escalado | 8 |
+| t14 integridad | 4 |
+| t15 re-siembra | 7 |
+| t16 failover bajo carga | 9 |
+| t17 auto-failover desactivado | 4 |
+| t18 imagen y digest | 7 |
+| t19 selectores (regresión) | 8 |
+| t20 reinicio total tras failover | 9 |
+| t21 seguridad PostgreSQL | 7 |
+
+Salida completa: [`evidencia/2026-10-11-suite-completa.txt`](evidencia/2026-10-11-suite-completa.txt).
