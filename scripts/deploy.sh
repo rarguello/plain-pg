@@ -5,13 +5,17 @@
 # Uso:
 #   ./scripts/deploy.sh                          # overlay completo (con failover automatico)
 #   ./scripts/deploy.sh manifests/overlays/lab-manual   # solo failover manual
-#   ./scripts/deploy.sh --reset-role             # fuerza PRIMARY_POD=postgres-0
-#                                                # y los selectores originales
+#   ./scripts/deploy.sh --reset-role             # vuelve al estado inicial
+#                                                # (PRIMARY_POD=postgres-0)
 #
-# IMPORTANTE: por defecto PRESERVA el estado operativo de failover. Reaplicar
-# los manifiestos no debe revertir un failover: si postgres-1 fue promovido, el
-# ConfigMap y los selectores de los Services se dejan como estan (el manifiesto
-# siempre declara postgres-0, que es solo el estado inicial).
+# IMPORTANTE: por defecto PRESERVA el estado operativo de failover SIN crear una
+# ventana inconsistente. Si el primary actual no es postgres-0, el manifiesto se
+# renderiza y se reescribe el rol/selectores ANTES de aplicarlo (necesita
+# python3 + pyyaml). Asi `oc apply` nunca llega a poner el rol viejo.
+#
+# `--reset-role` solo se permite si el primary actual YA es postgres-0; si hubo
+# un failover, primero hay que hacer el failback:
+#   ./scripts/failover-manual.sh postgres-0
 #
 set -euo pipefail
 
@@ -33,23 +37,53 @@ done
 echo "==> Render previo (kustomize)"
 oc kustomize "$OVERLAY" >/dev/null
 
-# --- Estado operativo actual (para no revertir un failover) ---
+# --- Estado operativo actual ---
 CUR_PRIMARY="$(oc -n "$NS" get cm postgres-role -o jsonpath='{.data.PRIMARY_POD}' 2>/dev/null || true)"
 CUR_RW="$(oc -n "$NS" get svc postgres-rw -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null || true)"
 CUR_RO="$(oc -n "$NS" get svc postgres-ro -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null || true)"
 
-echo "==> Aplicando $OVERLAY"
-oc apply -k "$OVERLAY"
+if [ "$RESET_ROLE" = "1" ] && [ -n "$CUR_PRIMARY" ] && [ "$CUR_PRIMARY" != "postgres-0" ]; then
+  echo "ERROR: --reset-role devolveria el rol a postgres-0, pero el primary actual es $CUR_PRIMARY." >&2
+  echo "       Hace primero el failback: ./scripts/failover-manual.sh postgres-0" >&2
+  exit 1
+fi
 
-if [ "$RESET_ROLE" != "1" ] && [ -n "$CUR_PRIMARY" ]; then
-  oc -n "$NS" patch cm postgres-role --type merge \
-    -p "{\"data\":{\"PRIMARY_POD\":\"$CUR_PRIMARY\"}}" >/dev/null
-  [ -n "$CUR_RW" ] && oc -n "$NS" patch svc postgres-rw \
-    -p "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$CUR_RW\"}}}" >/dev/null
-  [ -n "$CUR_RO" ] && oc -n "$NS" patch svc postgres-ro \
-    -p "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$CUR_RO\"}}}" >/dev/null
-  [ "$CUR_PRIMARY" != "postgres-0" ] && \
-    echo "==> Se preservo el estado de failover: PRIMARY_POD=$CUR_PRIMARY (rw=$CUR_RW, ro=$CUR_RO)"
+if [ "$RESET_ROLE" != "1" ] && [ -n "$CUR_PRIMARY" ] && [ "$CUR_PRIMARY" != "postgres-0" ]; then
+  if ! python3 -c 'import yaml' 2>/dev/null; then
+    echo "ERROR: para reaplicar despues de un failover se necesita python3 + pyyaml" >&2
+    echo "       (o hacer el failback primero con ./scripts/failover-manual.sh postgres-0)" >&2
+    exit 1
+  fi
+  echo "==> Preservando el estado de failover (primary=$CUR_PRIMARY, rw=$CUR_RW, ro=$CUR_RO)"
+  TMP="$(mktemp)"
+  oc kustomize "$OVERLAY" > "$TMP"
+  python3 - "$TMP" "$CUR_PRIMARY" "$CUR_RW" "$CUR_RO" <<'PY'
+import sys
+import yaml
+
+path, primary, rw, ro = sys.argv[1:5]
+docs = [d for d in yaml.safe_load_all(open(path)) if d]
+for doc in docs:
+    kind = doc.get("kind")
+    name = doc.get("metadata", {}).get("name")
+    if kind == "ConfigMap" and name == "postgres-role":
+        doc.setdefault("data", {})["PRIMARY_POD"] = primary
+    elif kind == "Service" and name in ("postgres-rw", "postgres-ro"):
+        want = rw if name == "postgres-rw" else ro
+        if want:
+            doc.setdefault("spec", {}).setdefault("selector", {})[
+                "statefulset.kubernetes.io/pod-name"
+            ] = want
+with open(path, "w") as fh:
+    yaml.safe_dump_all(docs, fh, default_flow_style=False, sort_keys=False,
+                       width=10**9)
+PY
+  echo "==> Aplicando $OVERLAY (con el rol preservado)"
+  oc apply -f "$TMP"
+  rm -f "$TMP"
+else
+  echo "==> Aplicando $OVERLAY"
+  oc apply -k "$OVERLAY"
 fi
 
 echo "==> Credenciales"

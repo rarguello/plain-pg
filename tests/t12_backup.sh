@@ -35,15 +35,15 @@ if [ -n "$DUMP" ]; then
           "SELECT count(*) FROM t_backup WHERE v='$MARK'" 2>/dev/null || echo 0)"
   check_eq "el backup restaurado contiene la fila de control" "1" "${CNT:-0}"
 
-  oc -n "$NS" exec "$PRIMARY" -- env PGPASSWORD="$ADMIN_PASSWORD" \
-    psql -h 127.0.0.1 -U postgres -d postgres -c "DROP DATABASE IF EXISTS \"$TARGET\";" \
-    >/dev/null 2>&1 || true
-
-  # El restore NO debe pisar una base existente ni la base de la app
+  # Con la base ya creada, el restore NO debe pisarla
   check "el restore se niega a pisar una base existente" \
     bash -c "! '$ROOT_DIR/scripts/restore-backup.sh' '/backups/$DUMP' '$TARGET' >/dev/null 2>&1"
   check "el restore se niega a usar la base de la app como destino" \
     bash -c "! '$ROOT_DIR/scripts/restore-backup.sh' '/backups/$DUMP' '$APP_DB' >/dev/null 2>&1"
+
+  oc -n "$NS" exec "$PRIMARY" -- env PGPASSWORD="$ADMIN_PASSWORD" \
+    psql -h 127.0.0.1 -U postgres -d postgres -c "DROP DATABASE IF EXISTS \"$TARGET\";" \
+    >/dev/null 2>&1 || true
 fi
 
 # La retencion esta configurada

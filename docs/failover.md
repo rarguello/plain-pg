@@ -30,14 +30,41 @@ ex-primary, al recrearse, se re-siembra solo desde el nuevo primary.
 
 ### A mano (equivalente)
 
+Mismo orden que el script: **fencing antes de promover**. Si en el paso 3 no se
+confirma que el ex-primary terminó, **no se promueve**.
+
 ```bash
 NS=pg-ha-lab
-oc -n $NS patch configmap postgres-role --type merge -p '{"data":{"PRIMARY_POD":"postgres-1"}}'
-oc -n $NS patch svc postgres-rw -p '{"spec":{"selector":{"statefulset.kubernetes.io/pod-name":"postgres-1"}}}'
-oc -n $NS patch svc postgres-ro -p '{"spec":{"selector":{"statefulset.kubernetes.io/pod-name":"postgres-0"}}}'
-oc -n $NS delete pod postgres-1     # se promueve
-oc -n $NS delete pod postgres-0     # se re-siembra como réplica
+OLD=postgres-0     # primary actual
+NEW=postgres-1     # candidato
+
+# 0. Desactivar el failover automático mientras dura la operación
+oc -n $NS patch configmap postgres-role --type merge -p '{"data":{"AUTO_FAILOVER":"false"}}'
+
+# 1. Declarar el candidato como primary
+oc -n $NS patch configmap postgres-role --type merge -p "{\"data\":{\"PRIMARY_POD\":\"$NEW\"}}"
+
+# 2. Reapuntar los Services
+oc -n $NS patch svc postgres-rw -p "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$NEW\"}}}"
+oc -n $NS patch svc postgres-ro -p "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$OLD\"}}}"
+
+# 3. FENCING: borrar el ex-primary y CONFIRMAR que terminó
+oc -n $NS get pod $OLD -o jsonpath='{.metadata.uid}'; echo   # anotar el UID
+oc -n $NS delete pod $OLD
+#   esperar y volver a consultar el UID: debe ser DISTINTO, o el pod no existir.
+#   Si el UID no cambia, NO seguir: el primary anterior sigue vivo.
+
+# 4. Promover el candidato
+oc -n $NS delete pod $NEW
+oc -n $NS exec $NEW -- psql -U postgres -tAc 'SELECT pg_is_in_recovery();'  # debe dar f
+
+# 5. Reactivar el automático
+oc -n $NS patch configmap postgres-role --type merge -p '{"data":{"AUTO_FAILOVER":"true"}}'
 ```
+
+Es fácil equivocarse a mano (sobre todo en el paso 3). El script
+`failover-manual.sh` hace exactamente esto, con verificación de cada paso y
+reversión si algo falla: usalo salvo que no tengas otra opción.
 
 ## Automático (opcional, *best-effort*)
 

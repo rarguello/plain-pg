@@ -38,10 +38,10 @@ rules:
     resources: ["configmaps"]
     verbs: ["get", "patch"]
     resourceNames: ["postgres-role"]
-  # Reapuntar SOLO los Services de la base.
+  # Reapuntar SOLO los Services de la base (y leerlos para verificar).
   - apiGroups: [""]
     resources: ["services"]
-    verbs: ["patch"]
+    verbs: ["get", "patch"]
     resourceNames: ["postgres-rw", "postgres-ro"]
 
 ---

@@ -67,9 +67,9 @@ data:
     #!/bin/bash
     # Uso: restore.sh <archivo.dump> [basededatos_destino]
     #
-    # Restaura en una base NUEVA. No pisa bases existentes salvo que se pase
-    # FORCE_DROP=1, y nunca acepta como destino la base de la aplicacion.
-    # Usa --exit-on-error: si algo falla, la base creada se elimina.
+    # Restaura SIEMPRE en una base nueva: no pisa bases existentes y rechaza la
+    # base de la aplicacion. Usa --exit-on-error: si algo falla, la base creada
+    # se elimina.
     set -euo pipefail
 
     DUMP="${1:?uso: restore.sh <archivo.dump> [basededatos]}"
@@ -78,10 +78,16 @@ data:
     PORT="${PGPORT:-5432}"
     ADMIN_USER="${BACKUP_ADMIN_USER:-postgres}"
     APP_DB="${POSTGRESQL_DATABASE:-appdb}"
-    FORCE_DROP="${FORCE_DROP:-0}"
 
     log() { echo "[pg-restore] $*"; }
     [ -f "$DUMP" ] || { log "ERROR: no existe $DUMP"; exit 1; }
+
+    # El nombre se usa como identificador SQL: se valida estrictamente.
+    case "$TARGET" in
+      *[!A-Za-z0-9_]*|[0-9]*)
+        log "ERROR: nombre de base invalido: '$TARGET' (solo [A-Za-z_][A-Za-z0-9_]*)"
+        exit 1 ;;
+    esac
     if [ "$TARGET" = "$APP_DB" ]; then
       log "ERROR: el destino no puede ser la base de la aplicacion ($APP_DB)"; exit 1
     fi
@@ -91,13 +97,8 @@ data:
     EXISTS="$(psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres -tAc \
               "SELECT 1 FROM pg_database WHERE datname='${TARGET}'")"
     if [ "$EXISTS" = "1" ]; then
-      if [ "$FORCE_DROP" != "1" ]; then
-        log "ERROR: la base ${TARGET} ya existe. Usa otro nombre o FORCE_DROP=1."
-        exit 1
-      fi
-      log "ADVERTENCIA: borrando la base existente ${TARGET} (FORCE_DROP=1)"
-      psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres -v ON_ERROR_STOP=1 \
-        -c "DROP DATABASE \"${TARGET}\";"
+      log "ERROR: la base ${TARGET} ya existe. Elegi otro nombre (este script no pisa bases)."
+      exit 1
     fi
 
     log "creando base destino ${TARGET}"
