@@ -60,7 +60,7 @@ spec:
             - |
               for i in \$(seq 1000 1299); do
                 if psql -q -c "INSERT INTO t_load_fo(id, v) VALUES (\$i, 'w-\$i') ON CONFLICT (id) DO NOTHING" >/dev/null 2>&1; then
-                  echo "OK \$i \$(date +%s)"
+                  echo "OK \$i \$(date +%s%N)"
                 fi
                 sleep 0.2
               done
@@ -87,7 +87,7 @@ EOF
 sleep 6   # deja escribir unas filas antes de la caida
 
 echo "  (failover con el escritor activo)"
-TS_FENCE="$(date +%s)"
+TS_FENCE="$(date +%s%N)"
 FORCE=1 "$ROOT_DIR/scripts/failover-manual.sh" "$REPLICA" >/dev/null 2>&1 || c_fail "el failover fallo"
 
 is_primary() { [ "$(pod_in_recovery "$1")" = "f" ]; }
@@ -98,16 +98,26 @@ KEPT="$(pod_psql "$REPLICA" -tAc "SELECT count(*) FROM t_load_fo WHERE id <= $PR
 check_eq "los $PRE_MAX registros previos sobrevivieron" "$PRE_MAX" "${KEPT:-0}"
 
 echo "  (esperando al escritor)"
-oc -n "$NS" wait --for=condition=complete --for=condition=failed \
-  "job/$WRITER" --timeout=240s >/dev/null 2>&1 || true
+wait_job_done "$WRITER" 240 >/dev/null 2>&1 || true
 WLOG="$(oc -n "$NS" logs "job/$WRITER" 2>/dev/null || true)"
 
-# "OK <id> <epoch>": separo lo confirmado ANTES de que arranque el failover
-# (seguro del primary anterior) de lo demas.
-ack_before() { printf '%s\n' "$WLOG" | awk -v ts="$TS_FENCE" \
-                 '$1=="OK" && $3+0 < ts+0 {print $2}' | sort | uniq; }
-ack_after()  { printf '%s\n' "$WLOG" | awk -v ts="$TS_FENCE" \
-                 '$1=="OK" && $3+0 >= ts+0 {print $2}' | sort | uniq; }
+# "OK <id> <epoch_ns>": separo lo confirmado ANTES de que arranque el failover
+# (seguro del primary anterior) de lo demas. La comparacion es lexicografica
+# (mismo largo de marca) para no perder precision con numeros de 19 digitos.
+ack_before() {
+  local _ id ts
+  while read -r _ id ts; do
+    [ -n "${ts:-}" ] || continue
+    if [[ "$ts" < "$TS_FENCE" ]]; then echo "$id"; fi
+  done <<< "$WLOG" | sort | uniq
+}
+ack_after() {
+  local _ id ts
+  while read -r _ id ts; do
+    [ -n "${ts:-}" ] || continue
+    if [[ "$ts" < "$TS_FENCE" ]]; then :; else echo "$id"; fi
+  done <<< "$WLOG" | sort | uniq
+}
 ACKED_PRE="$(ack_before)"
 ACKED_POST="$(ack_after)"
 PRESENT="$(pod_psql "$REPLICA" -tAc "SELECT id FROM t_load_fo WHERE id >= 1000 ORDER BY id" \

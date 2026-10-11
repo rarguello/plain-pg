@@ -109,6 +109,18 @@ data:
       esac
     }
 
+    # 0 si el pod existe con ese uid y sin deletionTimestamp (intacto).
+    pod_intact() {   # $1 = pod, $2 = uid
+      local tmp body
+      tmp="$(mktemp)"
+      api_raw GET "/api/v1/namespaces/$NS/pods/$1" >"$tmp" 2>/dev/null || true
+      body="$(cat "$tmp")"; rm -f "$tmp"
+      [ "$API_CODE" = "200" ] || return 1
+      [ "$(json_field "$body" uid)" = "$2" ] || return 1
+      printf '%s' "$body" | json_compact | grep -q '"deletionTimestamp":"' && return 1
+      return 0
+    }
+
     cm_get()     { api GET "/api/v1/namespaces/$NS/configmaps/postgres-role"; }
     svc_selector() {   # svc_selector <service> -> pod-name seleccionado
       api GET "/api/v1/namespaces/$NS/services/$1" 2>/dev/null \
@@ -187,7 +199,15 @@ data:
       esac
       log "fence: borrando $pod (uid=${uid:0:8})"
       if ! delete_pod "$pod"; then
-        log "ERROR: fence: no pude borrar $pod (sin cambios)"; return 1
+        # El DELETE fallo. Puede ser que NO se haya aceptado (seguro revertir) o
+        # que se haya aceptado y se perdio la respuesta (NO seguro). Solo se
+        # revierte si el pod sigue intacto.
+        if pod_intact "$pod" "$uid"; then
+          log "ERROR: fence: no pude borrar $pod (sigue intacto; sin cambios)"
+          return 1
+        fi
+        log "ERROR: fence: el DELETE de $pod fallo y el pod no esta intacto"
+        return 2
       fi
       while [ "$t" -lt "$FENCE_TIMEOUT" ]; do
         sleep 5; t=$((t + 5))

@@ -67,6 +67,23 @@ pod_in_recovery() {
   pod_psql_admin "$1" -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null || true
 }
 
+# Espera a que un Job termine (Complete o Failed). Imprime Complete|Failed|Timeout.
+# (`oc wait --for=condition=complete` no sirve para un Job que falla: se
+#  quedaria esperando hasta el timeout.)
+wait_job_done() {
+  local job="$1" timeout="${2:-1800}" i=0 cond
+  while [ "$i" -lt "$timeout" ]; do
+    cond="$(oc -n "$NS" get job "$job" -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}' 2>/dev/null || true)"
+    case "$cond" in
+      *Complete=True*) echo Complete; return 0 ;;
+      *Failed=True*)   echo Failed;   return 0 ;;
+    esac
+    sleep 5; i=$((i + 5))
+  done
+  echo Timeout
+  return 0
+}
+
 # Cuenta las replicas en estado 'streaming' segun el primary.
 streaming_count() {
   pod_psql_admin "$1" -tAc \

@@ -95,6 +95,13 @@ pod_state() {   # "gone" | "uid:<uid>" | "error:<msg>"
     *) printf 'error:%s' "$out" ;;
   esac
 }
+# 0 si el pod existe con ese uid y sin deletionTimestamp (intacto).
+pod_intact() {   # $1 = pod, $2 = uid
+  local out rc
+  out="$(oc -n "$NS" get pod "$1" -o jsonpath='{.metadata.uid}:{.metadata.deletionTimestamp}' 2>&1)" && rc=0 || rc=$?
+  [ "$rc" -eq 0 ] || return 1
+  [ "$out" = "$2:" ]
+}
 fence_pod() {   # 0 = aislado; 1 = sin cambios (seguro revertir); 2 = borrado aceptado, sin confirmar
   local pod="$1" state uid t=0
   state="$(pod_state "$pod")"
@@ -105,7 +112,11 @@ fence_pod() {   # 0 = aislado; 1 = sin cambios (seguro revertir); 2 = borrado ac
   esac
   echo "      borrando $pod (uid ${uid:0:8}) y esperando su terminacion"
   if ! oc -n "$NS" delete pod "$pod" --wait=false >/dev/null; then
-    echo "ERROR: no pude borrar $pod (sin cambios)" >&2; return 1
+    # El DELETE fallo: solo se revierte si el pod sigue intacto.
+    if pod_intact "$pod" "$uid"; then
+      echo "ERROR: no pude borrar $pod (sigue intacto; sin cambios)" >&2; return 1
+    fi
+    echo "ERROR: el DELETE de $pod fallo y el pod no esta intacto" >&2; return 2
   fi
   while [ "$t" -lt "$FENCE_TIMEOUT" ]; do
     sleep 3; t=$((t + 3))

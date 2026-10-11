@@ -106,6 +106,18 @@ else
   oc apply -k "$OVERLAY"
 fi
 
+# Verificacion posterior: si un failover ocurrio durante el apply, avisar
+# fuerte (no se puede evitar del todo sin un bloqueo compartido: no corras
+# deploy.sh y un failover al mismo tiempo).
+if [ -n "$CUR_PRIMARY" ]; then
+  read_state
+  if [ "$RP" != "$CUR_PRIMARY" ] || [ "$RRW" != "$CUR_RW" ] || [ "$RRO" != "$CUR_RO" ]; then
+    echo "ADVERTENCIA: el estado de failover cambio durante el deploy (¿failover concurrente?)" >&2
+    echo "  esperado: CM=$CUR_PRIMARY rw=$CUR_RW ro=$CUR_RO" >&2
+    echo "  ahora:    CM=$RP rw=$RRW ro=$RRO" >&2
+  fi
+fi
+
 echo "==> Credenciales"
 NAMESPACE="$NS" "$ROOT_DIR/scripts/generate-secret.sh"
 
