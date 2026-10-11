@@ -11,31 +11,35 @@ The suite runs against a real cluster; there are no mocks. Each test prints
 
 ## Coverage
 
-| Test | Covers |
-|---|---|
-| `t01_deploy` | Objects, PVCs, ready pods, UBI + PG18 image by digest |
-| `t02_roles` | Who is primary/replica, and consistency on disk |
-| `t03_replication` | Streaming, lag 0, write→read, replica is read-only |
-| `t04_services` | Endpoints of `-rw`/`-ro`/`-hl`, DNS and connections |
-| `t05_config` | `wal_level`, senders, `hot_standby`, `pg_hba`, users, database |
-| `t06_persistence` | Restarts keep the data and resume replication |
-| `t07_failover_manual` | Full manual failover and failback |
-| `t08_failover_auto` | The CronJob promotes an unreachable primary |
-| `t09_idempotency` | Re-applying changes no object (`resourceVersion`) |
-| `t10_security` | Non-root, PodSecurity `restricted`, RBAC, no secrets in git |
-| `t11_teardown` | Teardown deletes everything; the redeploy is healthy |
-| `t12_backup` | Backup and verified restore into a new database |
-| `t13_scaling` | Scale to 3 (the new replica seeds), back to 2 |
-| `t14_integrity` | 5000 rows: identical checksum, lag 0 |
-| `t15_reseed` | `reseed-replica.sh` recreates the PVC and seeds again |
-| `t16_failover_load` | Preexisting rows survive; the observed loss is a suffix |
-| `t17_auto_off` | `AUTO_FAILOVER=false` does not trigger a failover |
-| `t18_image` | The pinned digest matches the registry and the pods |
-| `t19_selectors` | Auxiliary pods do not collide with the Services |
-| `t20_full_restart` | Recreating both pods after a failover keeps the roles |
-| `t21_pg_security` | App user is not superuser; replica rejects DDL; remote auth |
-| `t22_read_balancing` | `-r` selects every instance and spreads connections |
-| `t23_hpa` | The HPA grows the fleet under load; the new replica serves reads |
+Every check, with the outcome of the last full run against a real cluster:
+
+**23/23 tests · 233 checks · 0 failures**
+
+| Test | What it proves | Checks | Result |
+|---|---|---:|---|
+| `t01_deploy` | Installs from scratch and both pods come up on the pinned UBI image | 29 | PASS |
+| `t02_roles` | Exactly one primary and one hot standby, consistent on disk | 11 | PASS |
+| `t03_replication` | Writes replicate to the standby; the standby is read-only | 7 | PASS |
+| `t04_services` | Each Service routes to the right pods; per-pod DNS resolves | 11 | PASS |
+| `t05_config` | Replication settings, users and the app database are correct | 13 | PASS |
+| `t06_persistence` | Restarting either pod keeps the data and resumes replication | 11 | PASS |
+| `t07_failover_manual` | A manual failover and failback move the role, the Services and the data | 18 | PASS |
+| `t08_failover_auto` | The CronJob detects a dead primary and promotes a replica on its own | 12 | PASS |
+| `t09_idempotency` | Re-applying the manifests changes nothing (safe to repeat) | 4 | PASS |
+| `t10_security` | Runs non-root, PodSecurity `restricted`, minimal RBAC, no secrets in git | 16 | PASS |
+| `t11_teardown` | Teardown removes everything and a redeploy comes back healthy | 11 | PASS |
+| `t12_backup` | A backup restores into a new database and the data checks out | 11 | PASS |
+| `t13_scaling` | A new replica seeds itself from the primary; scaling back is clean | 9 | PASS |
+| `t14_integrity` | 5000 rows are byte-identical on both nodes (checksum, lag 0) | 4 | PASS |
+| `t15_reseed` | A broken replica is re-seeded from scratch and replicates again | 7 | PASS |
+| `t16_failover_load` | Failover under active writes: existing rows survive, loss is only a suffix | 9 | PASS |
+| `t17_auto_off` | `AUTO_FAILOVER=false` really disables automatic failover | 4 | PASS |
+| `t18_image` | The pinned digest matches the registry and the running pods | 7 | PASS |
+| `t19_selectors` | Auxiliary pods never leak into the database Services | 8 | PASS |
+| `t20_full_restart` | Both pods restart after a failover without a deadlock or split-brain | 9 | PASS |
+| `t21_pg_security` | The app user cannot do DDL/superuser work; remote access needs the password | 7 | PASS |
+| `t22_read_balancing` | Reads through `-r` spread over all instances and return the same data | 4 | PASS |
+| `t23_hpa` | Under load the HPA grows the fleet and the new replica serves reads | 11 | PASS |
 
 Destructive tests (`t07`, `t08`, `t11`, `t13`, `t15`, `t16`, `t17`, `t23`) change
 the cluster but leave it consistent. `t11` deletes the PVCs and redeploys from
@@ -48,9 +52,11 @@ pass — read the summary, not just the exit code.
 
 - `oc` logged in with permission to create namespaces; `skopeo` and a pull secret
   for `t18`; a default StorageClass with `WaitForFirstConsumer`.
-- The suite's `scripts/deploy.sh` generates a throwaway `postgresql-credentials`
-  Secret from gitignored `secrets/` (a real deploy creates it by hand; see
-  `operations.md`).
+- `run-all.sh` deploys (or re-applies) the lab first with `scripts/deploy.sh`, so
+  the suite works from scratch. That script needs `oc` and, when the lab already
+  exists, Python with PyYAML, and it generates a throwaway
+  `postgresql-credentials` Secret from gitignored `secrets/` (a real deploy
+  creates it by hand; see `operations.md`).
 - Without a cluster: `oc kustomize` of the overlays plus
   `tools/check-scripts.py` validate the scripts embedded in the ConfigMaps, and
   `shellcheck -S warning scripts/*.sh tests/*.sh` lints the rest. CI

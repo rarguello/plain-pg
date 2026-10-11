@@ -21,7 +21,7 @@ the data PVC, so they survive a rebuild of the database.
 ```bash
 ./scripts/backup-now.sh
 ./scripts/restore-backup.sh /backups/20261011-020000-appdb.dump my_db
-oc -n postgresql-lab exec <job-pod> -- ls -lh /backups
+oc -n plain-pg exec <job-pod> -- ls -lh /backups
 ```
 
 `restore-backup.sh` restores the dump into a **new** database — it refuses to

@@ -1,8 +1,8 @@
 # Shortcuts. All targets assume `oc` logged in to the cluster.
 SHELL    := /usr/bin/env bash
-NS       ?= postgresql-lab
+NS       ?= plain-pg
 OVERLAY  ?= manifests/overlays/lab
-RENDERED := /tmp/postgresql-lab-rendered.yaml
+RENDERED := /tmp/plain-pg-rendered.yaml
 
 .PHONY: help deploy teardown verify failover backup lint test test-quick
 

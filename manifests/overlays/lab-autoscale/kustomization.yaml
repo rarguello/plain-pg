@@ -4,7 +4,7 @@ kind: Kustomization
 # Same as overlays/lab plus the read-scaling HPA.
 # Use it to try (or test) autoscaling with scripts/read-load.sh.
 
-namespace: postgresql-lab
+namespace: plain-pg
 
 resources:
   - ../lab

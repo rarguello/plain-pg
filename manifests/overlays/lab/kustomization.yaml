@@ -4,7 +4,7 @@ kind: Kustomization
 # COMPLETE lab overlay: base + automatic failover enabled.
 # It is the one scripts/deploy.sh uses by default.
 
-namespace: postgresql-lab
+namespace: plain-pg
 
 resources:
   - ../../base

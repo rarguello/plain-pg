@@ -8,9 +8,9 @@ startup, so there is nothing else to run.
 
 ```bash
 oc apply -f manifests/base/namespace.yaml
-oc -n postgresql-lab create secret generic postgresql-credentials ...   # see Credentials
+oc -n plain-pg create secret generic postgresql-credentials ...   # see Credentials
 oc apply -k manifests/overlays/lab
-oc -n postgresql-lab get pods      # wait for 2/2 Ready
+oc -n plain-pg get pods      # wait for 2/2 Ready
 ```
 
 Re-applying the overlay on a live cluster **resets** `PRIMARY_POD`, the
@@ -19,7 +19,8 @@ HPA. To change something live, patch that object; to return to the initial prima
 `./scripts/failover-manual.sh postgresql-0`.
 
 For manual failover only (no failover CronJob), apply
-`manifests/overlays/lab-manual` instead.
+`manifests/overlays/lab-manual` instead. `plain-pg` is just the example namespace:
+change `namespace:` in the overlay (and `NS` for the scripts) to deploy elsewhere.
 
 ## Credentials
 
@@ -27,7 +28,7 @@ For manual failover only (no failover CronJob), apply
 test tooling generates a throwaway one. Any of these works:
 
 ```bash
-oc -n postgresql-lab create secret generic postgresql-credentials \
+oc -n plain-pg create secret generic postgresql-credentials \
   --from-literal=POSTGRESQL_USER=app                --from-literal=POSTGRESQL_PASSWORD='<app-pw>' \
   --from-literal=POSTGRESQL_DATABASE=appdb           --from-literal=POSTGRESQL_ADMIN_PASSWORD='<admin-pw>' \
   --from-literal=POSTGRESQL_MASTER_USER=replicator   --from-literal=POSTGRESQL_MASTER_PASSWORD='<repl-pw>'
@@ -59,14 +60,14 @@ their names say; see `tests.md`.
 
 ```bash
 ./scripts/verify-replication.sh
-oc -n postgresql-lab get pods,pvc,svc
-oc -n postgresql-lab exec postgresql-0 -- psql -U postgres -c 'SELECT * FROM pg_stat_replication;'
+oc -n plain-pg get pods,pvc,svc
+oc -n plain-pg exec postgresql-0 -- psql -U postgres -c 'SELECT * FROM pg_stat_replication;'
 ```
 
 Use the credentials you put in the Secret (see [Credentials](#credentials)).
 
 ```bash
-NS=postgresql-lab
+NS=plain-pg
 oc -n $NS exec -it postgresql-0 -- psql -h postgresql-rw -U app -d appdb   # writes
 oc -n $NS exec -it postgresql-1 -- psql -h postgresql-ro -U app -d appdb   # reads
 oc -n $NS exec -it postgresql-0 -- psql -h 127.0.0.1 -U postgres           # superuser
@@ -75,9 +76,9 @@ oc -n $NS exec -it postgresql-0 -- psql -h 127.0.0.1 -U postgres           # sup
 ## Frequent tasks
 
 ```bash
-oc -n postgresql-lab logs -f postgresql-0
-oc -n postgresql-lab delete pod postgresql-1     # restart the replica (no impact)
-oc -n postgresql-lab delete pod postgresql-0     # restart the primary (brief outage)
+oc -n plain-pg logs -f postgresql-0
+oc -n plain-pg delete pod postgresql-1     # restart the replica (no impact)
+oc -n plain-pg delete pod postgresql-0     # restart the primary (brief outage)
 ./scripts/backup-now.sh
 ./scripts/reseed-replica.sh postgresql-1         # re-seed a broken replica
 ```

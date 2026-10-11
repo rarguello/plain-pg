@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: postgresql-lab
+  name: plain-pg
   labels:
     app.kubernetes.io/part-of: plain-pg
     # Security profile: pods run as non-root (OpenShift default).

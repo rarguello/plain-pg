@@ -28,7 +28,7 @@ soon as it is Ready, with no Service change.
 ```bash
 ./scripts/deploy.sh manifests/overlays/lab-autoscale   # lab + HPA
 ./scripts/read-load.sh 180 12                          # 12 readers, 3 minutes
-oc -n postgresql-lab get hpa postgresql-read
+oc -n plain-pg get hpa postgresql-read
 ```
 
 Measured in the lab (`t22`, `t23`): 40 connections were split 20/20 between two

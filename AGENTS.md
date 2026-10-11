@@ -16,7 +16,7 @@ Details and commands: `README.md`.
    values. A real deploy is given one by hand or by an ExternalSecret; the test
    tooling generates a throwaway one in gitignored `secrets/`.
 3. **The image must be UBI** (`registry.redhat.io/...`), pinned by digest.
-4. **Test namespace: `postgresql-lab`.** Do not touch other namespaces.
+4. **Test namespace: `plain-pg`.** Do not touch other namespaces.
 5. **Do not hardcode a StorageClass** unless it is unavoidable (and document it).
 6. **Everything documented was tested.** No untested procedures.
 7. **Idempotency:** every script must survive being run twice.

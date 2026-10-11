@@ -11,7 +11,7 @@
 #
 set -euo pipefail
 
-NS="${NAMESPACE:-postgresql-lab}"
+NS="${NAMESPACE:-plain-pg}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$ROOT_DIR/secrets"
 SECRET_FILE="$OUT_DIR/postgresql-credentials.env"

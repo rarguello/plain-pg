@@ -4,9 +4,9 @@
 #   source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 #
 # Requires `oc` in the PATH and being logged in to the cluster.
-# Variables: NAMESPACE (default postgresql-lab).
+# Variables: NAMESPACE (default plain-pg).
 
-NS="${NAMESPACE:-postgresql-lab}"
+NS="${NAMESPACE:-plain-pg}"
 
 # Real PGDATA path of the sclorg image (used by the tests).
 # shellcheck disable=SC2034

@@ -48,7 +48,7 @@ HPA removes the highest ordinals on scale-down.
 Enabled in the `postgresql-role` ConfigMap:
 
 ```bash
-oc -n postgresql-lab patch configmap postgresql-role --type merge \
+oc -n plain-pg patch configmap postgresql-role --type merge \
   -p '{"data":{"AUTO_FAILOVER":"true","FAILOVER_GRACE_SECONDS":"120"}}'
 ```
 
@@ -66,7 +66,7 @@ Read these before relying on automatic failover.
 | Detection is by timeout, not consensus | a slow primary can be declared down too early | keep `FAILOVER_GRACE_SECONDS` conservative (120–300 s) |
 | A pod restarts between declaring the new role and finishing fencing | the candidate can promote, or the ex-primary can wipe and re-seed its PGDATA, before isolation is confirmed | not guarded: a spontaneous restart can hit this window, so verify a single primary after any failover |
 | Promotion does not check the replay position | a reachable but stale standby can be promoted | fail over by hand when you need a bounded loss |
-| The promotion fails | the declared state stays on the candidate; the ex-primary is isolated | finish it (`oc -n postgresql-lab delete pod <candidate>`) or roll back explicitly |
+| The promotion fails | the declared state stays on the candidate; the ex-primary is isolated | finish it (`oc -n plain-pg delete pod <candidate>`) or roll back explicitly |
 
 Fencing is **not STONITH**: it verifies the Kubernetes pod object (it disappeared
 or changed UID), not that the PostgreSQL process died. There is no external

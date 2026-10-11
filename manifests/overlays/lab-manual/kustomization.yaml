@@ -4,7 +4,7 @@ kind: Kustomization
 # MINIMAL overlay: replication + MANUAL failover only. No CronJob, no RBAC,
 # no automatic failover (AUTO_FAILOVER stays at "false").
 
-namespace: postgresql-lab
+namespace: plain-pg
 
 resources:
   - ../../base
