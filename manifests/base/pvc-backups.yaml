@@ -1,18 +1,19 @@
 ###############################################################################
 # pvc-backups.yaml
 #
-# PVC dedicado a los backups. Separado del PVC de datos para que sobreviva a
-# un rebuild de la base y no compita por el acceso al volumen de PostgreSQL.
+# PVC dedicated to backups. Separate from the data PVC so that it survives a
+# rebuild of the database and does not compete for access to the PostgreSQL
+# volume.
 ###############################################################################
 
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: postgres-backups
+  name: postgresql-backups
   labels:
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
-    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/instance: postgresql
+    app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: backup
 spec:
   accessModes:

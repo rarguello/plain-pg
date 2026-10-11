@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 #
-# lib-test.sh -- mini-framework para la bateria de pruebas.
-# Se sourcea desde cada tests/tNN_*.sh.
+# lib-test.sh -- mini-framework for the test suite.
+# Sourced from each tests/tNN_*.sh.
 #
-# Uso:
+# Usage:
 #   check        "<desc>" <cmd...>
-#   check_eq     "<desc>" <esperado> <actual>
-#   check_ne     "<desc>" <no-esperado> <actual>
-#   check_match  "<desc>" <regex> <texto>
-#   check_contains "<desc>" <subcadena> <texto>
+#   check_eq     "<desc>" <expected> <actual>
+#   check_ne     "<desc>" <not-expected> <actual>
+#   check_match  "<desc>" <regex> <text>
+#   check_contains "<desc>" <substring> <text>
 #   wait_for     <timeout_s> "<desc>" <cmd...>
 #   c_skip       "<desc>"
-#   t_summary    (al final; define el exit code)
+#   t_summary    (at the end; sets the exit code)
 #
 set -uo pipefail
 
@@ -33,19 +33,19 @@ check() {
 }
 check_eq() {
   local d="$1" e="$2" a="$3"
-  if [ "$e" = "$a" ]; then c_ok "$d"; else c_fail "$d (esperado='$e' obtenido='$a')"; fi
+  if [ "$e" = "$a" ]; then c_ok "$d"; else c_fail "$d (expected='$e' got='$a')"; fi
 }
 check_ne() {
   local d="$1" e="$2" a="$3"
-  if [ "$e" != "$a" ]; then c_ok "$d"; else c_fail "$d (no deberia ser '$e')"; fi
+  if [ "$e" != "$a" ]; then c_ok "$d"; else c_fail "$d (should not be '$e')"; fi
 }
 check_match() {
   local d="$1" re="$2" s="$3"
-  if printf '%s' "$s" | grep -Eq "$re"; then c_ok "$d"; else c_fail "$d (no matchea /$re/: '$s')"; fi
+  if printf '%s' "$s" | grep -Eq "$re"; then c_ok "$d"; else c_fail "$d (does not match /$re/: '$s')"; fi
 }
 check_contains() {
   local d="$1" needle="$2" hay="$3"
-  if printf '%s' "$hay" | grep -qF -- "$needle"; then c_ok "$d"; else c_fail "$d (no contiene '$needle')"; fi
+  if printf '%s' "$hay" | grep -qF -- "$needle"; then c_ok "$d"; else c_fail "$d (does not contain '$needle')"; fi
 }
 
 wait_for() {
@@ -65,9 +65,9 @@ pod_ready() {   # pod_ready <pod>
 
 t_summary() {
   echo
-  echo "  ---- resumen: PASS=$PASS FAIL=$FAIL SKIP=$SKIP"
+  echo "  ---- summary: PASS=$PASS FAIL=$FAIL SKIP=$SKIP"
   if [ "$FAIL" -gt 0 ]; then
-    echo "  ---- fallos:"
+    echo "  ---- failures:"
     for f in "${FAILED_DESCS[@]}"; do echo "        - $f"; done
     return 1
   fi

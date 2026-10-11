@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# verify-replication.sh -- verifica el estado de la replicacion end-to-end.
+# verify-replication.sh -- verifies the replication state end-to-end.
 #
 set -euo pipefail
 
@@ -15,19 +15,19 @@ mapfile -t REPLICAS < <(replica_pods)
 echo "==========================================================================="
 echo " Pods"
 echo "==========================================================================="
-oc -n "$NS" get pods -l app.kubernetes.io/instance=postgres -o wide
+oc -n "$NS" get pods -l app.kubernetes.io/instance=postgresql -o wide
 
 echo
 echo "==========================================================================="
-echo " Rol del primary declarado: $PRIMARY"
+echo " Declared primary role: $PRIMARY"
 echo "==========================================================================="
 IR="$(pod_in_recovery "$PRIMARY")"
-echo "pg_is_in_recovery() = $IR   (esperado: f)"
-[ "$IR" = "f" ] || { echo "FALLO: $PRIMARY no es primary"; exit 1; }
+echo "pg_is_in_recovery() = $IR   (expected: f)"
+[ "$IR" = "f" ] || { echo "FAILURE: $PRIMARY is not primary"; exit 1; }
 
 echo
 echo "==========================================================================="
-echo " Estado de replicacion en el primary (pg_stat_replication)"
+echo " Replication state on the primary (pg_stat_replication)"
 echo "==========================================================================="
 pod_psql_admin "$PRIMARY" -P pager=off -c "
   SELECT application_name,
@@ -40,16 +40,16 @@ pod_psql_admin "$PRIMARY" -P pager=off -c "
 for r in "${REPLICAS[@]}"; do
   echo
   echo "==========================================================================="
-  echo " Rol de la replica: $r"
+  echo " Replica role: $r"
   echo "==========================================================================="
   IR="$(pod_in_recovery "$r")"
-  echo "pg_is_in_recovery() = $IR   (esperado: t)"
-  [ "$IR" = "t" ] || { echo "FALLO: $r no es standby"; exit 1; }
+  echo "pg_is_in_recovery() = $IR   (expected: t)"
+  [ "$IR" = "t" ] || { echo "FAILURE: $r is not standby"; exit 1; }
 done
 
 echo
 echo "==========================================================================="
-echo " Prueba end-to-end: escribo en el primary y leo en la(s) replica(s)"
+echo " End-to-end test: write on the primary and read on the replica(s)"
 echo "==========================================================================="
 pod_psql "$PRIMARY" -q -c "
   CREATE TABLE IF NOT EXISTS pg_ha_check(
@@ -62,9 +62,9 @@ pod_psql "$PRIMARY" -q -c "
 sleep 2
 
 for r in "${REPLICAS[@]}"; do
-  echo "-- lo que ve $r:"
+  echo "-- what $r sees:"
   pod_psql "$r" -P pager=off -c "SELECT count(*) AS filas, max(ts) AS ultima FROM pg_ha_check;"
 done
 
 echo
-echo "OK: replicacion verificada."
+echo "OK: replication verified."

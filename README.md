@@ -1,141 +1,138 @@
-# pg-ha
+# plain-pg
 
-**PostgreSQL con una réplica en OpenShift, usando solo objetos nativos de
-Kubernetes. Sin operadores, sin CRDs, sin consolas.**
+**PostgreSQL with a hot replica on OpenShift, using plain Kubernetes objects.
+No operator, no CRDs, no console.**
 
-*PostgreSQL streaming replication on OpenShift with plain Kubernetes objects —
-no operator, no CRD.*
-
-Un StatefulSet de 2 pods: `postgres-0` es el primary y `postgres-1` una réplica
-hot standby. La imagen es **PostgreSQL 18 sobre UBI** (`registry.redhat.io/rhel10/postgresql-18`).
-El rol de cada pod se decide con un ConfigMap, así que promover una réplica es
-cambiar un valor y recrear pods — no hace falta un controlador.
+A StatefulSet with 2 pods: `postgresql-0` is the primary, `postgresql-1` a hot
+standby. The image is **PostgreSQL 18 on UBI**
+(`registry.redhat.io/rhel10/postgresql-18`), pinned by digest. Which pod is
+primary is decided by a ConfigMap, so promoting a replica is changing a value
+and recreating pods — no controller required.
 
 ```
-                 ┌─────────────────────────── Namespace: pg-ha-lab ───────────────────────────┐
-                 │                                                                            │
-  apps ──rw─────▶│  Service postgres-rw ──▶ pod postgres-0  [PRIMARY]  ──▶ PVC pgdata-…-0     │
-                 │                                    │  WAL streaming                       │
-  apps ──ro─────▶│  Service postgres-ro ──▶ pod postgres-1  [STANDBY]  ──▶ PVC pgdata-…-1     │
-                 │                                    ▲                                     │
-                 │  Service postgres-hl (headless) ───┘  DNS estable por pod                  │
-                 │                                                                            │
-                 │  CronJob postgres-backup   → pg_dump  → PVC postgres-backups               │
-                 │  CronJob postgres-failover → promueve si el primary no responde (opcional)  │
-                 └────────────────────────────────────────────────────────────────────────────┘
+writes ──▶ postgresql-rw ──▶ postgresql-0  [PRIMARY]  ──▶ PVC pgdata-postgresql-0
+reads  ──▶ postgresql-r  ──▶ every Ready instance (load-balanced)
+reads  ──▶ postgresql-ro ──▶ postgresql-1  [STANDBY]  ──▶ PVC pgdata-postgresql-1
+                                  ▲
+                   WAL streaming  │   postgresql-hl: per-pod DNS
+
+CronJob postgresql-backup   ──▶ pg_dump ──▶ PVC postgresql-backups
+CronJob postgresql-failover ──▶ promotes a replica if the primary stops answering
+HPA postgresql-read         ──▶ grows the read fleet under load (optional)
 ```
 
-## Qué es
+## What it is
 
-- Replicación streaming nativa de PostgreSQL, configurada por scripts.
-- Reutiliza la maquinaria de la imagen de Red Hat (`run-postgresql`, hooks,
-  `ENABLE_REPLICATION`): no reimplementa `initdb` ni la creación de usuarios.
-- Tres Services: `-rw` (primary), `-ro` (réplica), `-hl` (DNS entre pods).
-- **Failover manual** documentado y **failover automático opcional** (un CronJob
-  que revisa el primary y promueve una réplica).
-- **Backups lógicos** (`pg_dump`/`pg_dumpall`) con retención, en un CronJob.
-- Despliegue con **Kustomize** y una **batería de pruebas** que se corre contra
-  un cluster real.
+- Native PostgreSQL streaming replication, configured by scripts.
+- It reuses Red Hat's image machinery (`run-postgresql`, its hooks,
+  `ENABLE_REPLICATION`): `initdb` and user creation are not reimplemented.
+- Four Services: `-rw` (primary), `-r` (all instances, load-balanced reads),
+  `-ro` (replica), `-hl` (per-pod DNS).
+- **Manual failover** documented, plus an **optional** automatic failover
+  CronJob with verifiable pod-level fencing.
+- **Logical backups** (`pg_dump`/`pg_dumpall`) with retention and a verified
+  restore path.
+- **Optional read autoscaling** (HPA) that pairs with `postgresql-r`.
+- Kustomize overlays, a `Makefile`, and a test suite that runs against a real
+  cluster.
 
-## Qué NO es
+## What it is not
 
-- **No es un operador.** No hay CRDs, no hay reconciliación continua, no hay
-  consola. Si necesitás eso, usá [CloudNativePG](https://cloudnative-pg.io/),
-  [Zalando](https://github.com/zalando/postgres-operator) o
-  [Crunchy](https://access.crunchydata.com/documentation/postgres-operator/latest/).
-  Ver [docs/comparacion.md](docs/comparacion.md).
-- **No es PITR.** Los backups son lógicos (dumps), no hay archivado de WAL.
-- **El failover automático no es HA de nivel producción.** Hace *fencing*
-  verificable a nivel de **pod** (borra el ex-primary y confirma que terminó)
-  antes de promover, pero no es STONITH: si el *nodo* se parte del API server,
-  el pod puede desaparecer mientras el proceso sigue vivo y quedarían dos
-  primaries. Para una garantía real hace falta fencing del nodo. Además la
-  replicación es asíncrona, así que un failover puede perder las últimas
-  transacciones no replicadas. Leé [docs/failover.md](docs/failover.md) antes de
-  usarlo en producción.
-- **No resuelve la elección de líder** (quórum/consenso). El "primary" es el que
-  dice el ConfigMap.
+- **Not an operator.** No CRDs, no continuous reconciliation, no console. If you
+  need that, use [CloudNativePG](https://cloudnative-pg.io/) or another operator
+  — see [docs/comparison.md](docs/comparison.md) for an honest side-by-side.
+- **Not PITR.** Backups are logical dumps; there is no WAL archiving.
+- **Not production-grade HA.** The automatic failover fences at the *pod* level,
+  which is not STONITH: a node partition can still produce two primaries. Reads
+  from a replica can also lag, and an async failover can lose the last
+  unreplicated transactions. Read [docs/failover.md](docs/failover.md) before
+  trusting it with anything that matters.
+- **No consensus leader election.** The primary is whoever the ConfigMap says.
 
-## Inicio rápido
+## Quick start
 
-Requisitos: `oc` (o `kubectl`) logueado en el cluster y `git`. Nada más.
+You need `oc` (or `kubectl`) logged into a cluster, and `git`. Nothing else.
 
 ```bash
-git clone https://github.com/<tu-usuario>/pg-ha.git && cd pg-ha
+git clone https://github.com/<you>/plain-pg.git && cd plain-pg
 
-./scripts/deploy.sh              # despliega el overlay completo (con failover automático)
-./scripts/verify-replication.sh  # verifica que la réplica está al día
+./scripts/deploy.sh              # full overlay (with automatic failover)
+./scripts/verify-replication.sh  # checks the replica is up to date
 ```
 
-También hay `make`:
+There is a `Makefile` too: `make deploy`, `make verify`, `make lint`,
+`make test-quick`, `make test`.
 
-```bash
-make deploy      # desplegar
-make verify      # verificar la replicación
-make lint        # shellcheck + kustomize + scripts embebidos
-make test-quick  # pruebas no destructivas
-```
-
-Si preferís solo replicación + failover manual (sin el CronJob de failover):
+Reads-only + manual failover (no failover CronJob):
 
 ```bash
 ./scripts/deploy.sh manifests/overlays/lab-manual
 ```
 
-Para destruir el laboratorio:
+Tear down:
 
 ```bash
-./scripts/teardown.sh        # borra recursos, PVCs y el Secret
-./scripts/teardown.sh --all  # borra el namespace completo
+./scripts/teardown.sh        # resources, PVCs and the Secret (keeps the namespace)
+./scripts/teardown.sh --all  # the whole namespace
 ```
 
-## Uso
+## Using it
 
 ```bash
-# Lectura/escritura -> siempre el primary
-psql "postgresql://app:PASS@postgres-rw.pg-ha-lab.svc:5432/appdb"
+# writes (always the primary)
+psql "postgresql://app:PASS@postgresql-rw.postgresql-lab.svc:5432/appdb"
 
-# Solo lectura -> la réplica
-psql "postgresql://app:PASS@postgres-ro.pg-ha-lab.svc:5432/appdb"
+# reads, spread over all instances
+psql "postgresql://app:PASS@postgresql-r.postgresql-lab.svc:5432/appdb"
 
-# Estado de la replicación
-oc -n pg-ha-lab exec postgres-0 -- psql -U postgres -c 'SELECT * FROM pg_stat_replication;'
+# reads, replica only
+psql "postgresql://app:PASS@postgresql-ro.postgresql-lab.svc:5432/appdb"
 
-# Backup manual / restore a una base nueva
+# replication status
+oc -n postgresql-lab exec postgresql-0 -- psql -U postgres -c 'SELECT * FROM pg_stat_replication;'
+
+# backups
 ./scripts/backup-now.sh
-./scripts/restore-backup.sh /backups/<archivo>.dump mi_base_restaurada
+./scripts/restore-backup.sh /backups/<file>.dump my_restored_db
 
-# Failover manual
+# failover
 ./scripts/failover-manual.sh
+
+# read load + autoscaling demo
+./scripts/deploy.sh manifests/overlays/lab-autoscale
+./scripts/read-load.sh 180 12
 ```
 
-## Documentación
+## Documentation
 
-| Documento | Contenido |
+| Document | Contents |
 |---|---|
-| [docs/arquitectura.md](docs/arquitectura.md) | Cómo funciona por dentro y por qué |
-| [docs/operacion.md](docs/operacion.md) | Desplegar, verificar, tareas del día a día |
-| [docs/failover.md](docs/failover.md) | Failover manual y automático, límites |
-| [docs/backups.md](docs/backups.md) | Backups, retención y restore |
-| [docs/escenarios.md](docs/escenarios.md) | Matriz "qué pasa si…" |
-| [docs/comparacion.md](docs/comparacion.md) | Comparación honesta con CloudNativePG |
-| [docs/pruebas.md](docs/pruebas.md) | Cómo correr la batería de pruebas y resultados |
-| [docs/notas-tecnicas.md](docs/notas-tecnicas.md) | Detalles finos (digest multi-arch, `oc apply`, etc.) |
+| [docs/architecture.md](docs/architecture.md) | How it works inside, and why |
+| [docs/operations.md](docs/operations.md) | Deploy, verify, day-to-day tasks |
+| [docs/failover.md](docs/failover.md) | Manual and automatic failover, limits |
+| [docs/backups.md](docs/backups.md) | Backups, retention, restore |
+| [docs/scaling.md](docs/scaling.md) | Read balancing and the HPA |
+| [docs/scenarios.md](docs/scenarios.md) | "What happens if…" matrix |
+| [docs/use-cases.md](docs/use-cases.md) | When to use it and when not |
+| [docs/comparison.md](docs/comparison.md) | Side-by-side with the popular operators |
+| [docs/tests.md](docs/tests.md) | How to run the test suite, and results |
+| [docs/technical-notes.md](docs/technical-notes.md) | Sharp edges (multi-arch digest, `oc apply`, …) |
 
-## Estructura
+## Layout
 
 ```
 manifests/
-  base/                 objetos comunes (kustomize)
-  components/           add-ons opcionales (failover automático)
-  overlays/lab/         despliegue completo   (pg-ha-lab)
-  overlays/lab-manual/  solo failover manual
-scripts/                deploy, teardown, verify, failover, backup, restore
-tests/                  batería de pruebas (t01…t20) + runner
-tools/                  validación estática (scripts embebidos)
-docs/                   documentación
+  base/                 shared objects (kustomize)
+  components/           optional add-ons (automatic failover, read scaling)
+  overlays/lab/         full deployment            (postgresql-lab)
+  overlays/lab-manual/  manual failover only
+  overlays/lab-autoscale/  lab + HPA
+scripts/                deploy, teardown, verify, failover, backup, restore, read-load
+tests/                  test suite (t01…t23) + runner
+tools/                  static validation of the embedded scripts
+docs/                   documentation
 ```
 
-## Licencia
+## License
 
-MIT. Ver [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

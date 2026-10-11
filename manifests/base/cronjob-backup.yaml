@@ -1,21 +1,21 @@
 ###############################################################################
 # cronjob-backup.yaml
 #
-# Backup diario. Corre contra el Service postgres-rw, por lo que sigue
-# automaticamente al primary actual (incluso despues de un failover).
+# Daily backup. It runs against the postgresql-rw Service, so it automatically
+# follows the current primary (even after a failover).
 #
-# OJO: las labels del pod NO deben coincidir con las de los pods de la BD, o el
-# pod del backup entraria como endpoint de los Services de PostgreSQL.
+# NOTE: the pod labels must NOT match those of the DB pods, or the backup pod
+# would enter as an endpoint of the PostgreSQL Services.
 ###############################################################################
 
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: postgres-backup
+  name: postgresql-backup
   labels:
     app.kubernetes.io/name: pg-backup
-    app.kubernetes.io/instance: pg-ha
-    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/instance: plain-pg
+    app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: backup
 spec:
   schedule: "0 2 * * *"
@@ -31,8 +31,8 @@ spec:
         metadata:
           labels:
             app.kubernetes.io/name: pg-backup
-            app.kubernetes.io/instance: pg-ha
-            app.kubernetes.io/part-of: pg-ha
+            app.kubernetes.io/instance: plain-pg
+            app.kubernetes.io/part-of: plain-pg
             app.kubernetes.io/component: backup
         spec:
           restartPolicy: Never
@@ -50,10 +50,10 @@ spec:
                   drop: ["ALL"]
               envFrom:
                 - secretRef:
-                    name: postgres-credentials
+                    name: postgresql-credentials
               env:
                 - name: BACKUP_HOST
-                  value: postgres-rw
+                  value: postgresql-rw
                 - name: BACKUP_DIR
                   value: /backups
                 - name: BACKUP_RETENTION_DAYS
@@ -75,10 +75,10 @@ spec:
           volumes:
             - name: backups
               persistentVolumeClaim:
-                claimName: postgres-backups
+                claimName: postgresql-backups
             - name: scripts
               configMap:
-                name: postgres-backup-scripts
+                name: postgresql-backup-scripts
                 defaultMode: 0755
                 items:
                   - key: backup.sh

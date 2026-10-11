@@ -1,42 +1,42 @@
 ###############################################################################
 # networkpolicy.yaml
 #
-# Politica de INGRESS solamente (no restringimos egress para no romper DNS ni
-# el acceso al API server). Permite que cualquier pod del namespace hable con
-# PostgreSQL en el 5432, y nada mas desde fuera del namespace.
+# INGRESS-only policy (egress is not restricted, to avoid breaking DNS or
+# access to the API server). It allows any pod in the namespace to talk to
+# PostgreSQL on 5432, and nothing else from outside the namespace.
 #
-# Las sondas del kubelet no se ven afectadas por NetworkPolicy.
+# kubelet probes are not affected by NetworkPolicy.
 ###############################################################################
 
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: postgres-ingress
+  name: postgresql-ingress
   labels:
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
-    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/instance: postgresql
+    app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: database
 spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: postgresql
-      app.kubernetes.io/instance: postgres
+      app.kubernetes.io/instance: postgresql
   policyTypes:
     - Ingress
   ingress:
-    # Clientes dentro del namespace (apps, el CronJob de failover, psql de debug).
+    # Clients inside the namespace (apps, the failover CronJob, debug psql).
     - from:
         - podSelector: {}
       ports:
         - protocol: TCP
           port: 5432
-    # Replicacion entre los propios pods de PostgreSQL.
+    # Replication between the PostgreSQL pods themselves.
     - from:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: postgresql
-              app.kubernetes.io/instance: postgres
+              app.kubernetes.io/instance: postgresql
       ports:
         - protocol: TCP
           port: 5432

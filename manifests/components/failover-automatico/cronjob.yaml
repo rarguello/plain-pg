@@ -1,25 +1,25 @@
 ###############################################################################
 # cronjob.yaml
 #
-# Corre el controlador de failover cada minuto. `concurrencyPolicy: Forbid`
-# evita que dos corridas se solapen.
+# Runs the failover controller every minute. `concurrencyPolicy: Forbid`
+# prevents two runs from overlapping.
 #
-# El pod del CronJob NO tiene estado: lee el rol declarado desde la API en cada
-# corrida (no de variables de entorno, que quedarian viejas si un failover
-# manual cambia el ConfigMap mientras el pod arranca).
+# The CronJob pod is STATELESS: it reads the declared role from the API on each
+# run (not from environment variables, which would go stale if a manual failover
+# changes the ConfigMap while the pod starts).
 #
-# Credenciales: SOLO el usuario de la aplicacion (alcanza para
-# `SELECT pg_is_in_recovery()`). No se le pasa la del superusuario.
+# Credentials: ONLY the application user (enough for
+# `SELECT pg_is_in_recovery()`). The superuser one is not passed to it.
 ###############################################################################
 
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: postgres-failover
+  name: postgresql-failover
   labels:
     app.kubernetes.io/name: pg-failover
-    app.kubernetes.io/instance: pg-ha
-    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/instance: plain-pg
+    app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: failover
 spec:
   schedule: "*/1 * * * *"
@@ -33,16 +33,16 @@ spec:
       activeDeadlineSeconds: 900
       template:
         metadata:
-          # OJO: estas labels NO deben coincidir con las de los pods de la BD,
-          # o el pod del CronJob entraria como endpoint de los Services de
-          # PostgreSQL (postgres-hl/-rw/-ro).
+          # NOTE: these labels must NOT match those of the DB pods, or the
+          # CronJob pod would enter as an endpoint of the PostgreSQL Services
+          # (postgresql-hl/-rw/-ro).
           labels:
             app.kubernetes.io/name: pg-failover
-            app.kubernetes.io/instance: pg-ha
-            app.kubernetes.io/part-of: pg-ha
+            app.kubernetes.io/instance: plain-pg
+            app.kubernetes.io/part-of: plain-pg
             app.kubernetes.io/component: failover
         spec:
-          serviceAccountName: postgres-failover
+          serviceAccountName: postgresql-failover
           restartPolicy: Never
           securityContext:
             runAsNonRoot: true
@@ -62,23 +62,23 @@ spec:
                     fieldRef:
                       fieldPath: metadata.namespace
                 - name: HL_SERVICE
-                  value: postgres-hl
+                  value: postgresql-hl
                 - name: PGPORT
                   value: "5432"
                 - name: POSTGRESQL_USER
                   valueFrom:
                     secretKeyRef:
-                      name: postgres-credentials
+                      name: postgresql-credentials
                       key: POSTGRESQL_USER
                 - name: POSTGRESQL_PASSWORD
                   valueFrom:
                     secretKeyRef:
-                      name: postgres-credentials
+                      name: postgresql-credentials
                       key: POSTGRESQL_PASSWORD
                 - name: POSTGRESQL_DATABASE
                   valueFrom:
                     secretKeyRef:
-                      name: postgres-credentials
+                      name: postgresql-credentials
                       key: POSTGRESQL_DATABASE
               resources:
                 requests:
@@ -93,7 +93,7 @@ spec:
           volumes:
             - name: scripts
               configMap:
-                name: postgres-failover-scripts
+                name: postgresql-failover-scripts
                 defaultMode: 0755
                 items:
                   - key: failover-controller.sh

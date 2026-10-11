@@ -1,0 +1,60 @@
+###############################################################################
+# hpa.yaml
+#
+# Scales the StatefulSet with the number of readers. Combined with the
+# postgresql-r Service (which selects every Ready instance), a new replica starts
+# receiving read traffic as soon as it is Ready -- no Service change needed.
+#
+# How to read it:
+#   - averageUtilization is measured against the CPU *request* of the pods
+#     (100m in base/statefulset.yaml). At 70%, a replica using ~70m triggers a
+#     scale-up.
+#   - minReplicas must be >= 2: one primary + at least one replica.
+#   - maxReplicas bounds the fleet. Every new replica does a full
+#     pg_basebackup, so raising this too high has a cost.
+#
+# CAVEATS (see docs/scaling.md):
+#   - While an HPA owns `replicas`, do NOT scale the StatefulSet by hand: the
+#     HPA will override it.
+#   - Scaling down leaves the removed replica's PVC orphaned (delete it).
+#   - Scaling up is not instant: the new pod has to seed from the primary.
+###############################################################################
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: postgresql-read
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: postgresql
+    app.kubernetes.io/part-of: plain-pg
+    app.kubernetes.io/component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: postgresql
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      # React quickly to a read avalanche.
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleDown:
+      # Back off slowly: seeding a replica is expensive.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120

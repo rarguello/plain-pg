@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
-# t16 -- Failover con carga.
+# t16 -- Failover under load.
 #
-#   - Los datos confirmados ANTES del failover sobreviven.
-#   - Lo que se pierde de esos datos es un SUFIJO contiguo (la replica iba
-#     atras por un tramo final), no un conjunto disperso: eso probaria
-#     divergencia, no replicacion asincrona.
-#   - Al terminar hay exactamente un primary.
+#   - Data confirmed BEFORE the failover survives.
+#   - What is lost from that data is a contiguous SUFFIX (the replica was behind
+#     by a final stretch), not a scattered set: that would prove divergence, not
+#     asynchronous replication.
+#   - At the end there is exactly one primary.
 #
-# El escritor usa ids explicitos (1000..1299) e imprime "OK <id> <epoch>" por
-# cada commit confirmado. El corte es el instante en que ARRANCA el failover:
-# lo confirmado antes de ese instante seguro lo escribio el primary anterior.
+# The writer uses explicit ids (1000..1299) and prints "OK <id> <epoch>" for
+# each confirmed commit. The cut is the instant at which the failover STARTS:
+# what was confirmed before that instant was surely written by the previous
+# primary.
 source "$(dirname "${BASH_SOURCE[0]}")/lib-test.sh"
 load_credentials
 
-echo "### t16 failover bajo carga"
+echo "### t16 failover under load"
 
 PRIMARY="$(primary_pod)"
 REPLICA="$(replica_pods | head -1)"
-IMG="$(oc -n "$NS" get sts postgres -o jsonpath='{.spec.template.spec.containers[0].image}')"
+IMG="$(oc -n "$NS" get sts postgresql -o jsonpath='{.spec.template.spec.containers[0].image}')"
 WRITER="t16-writer-$$"
 
 pod_psql "$PRIMARY" -q -c \
@@ -25,9 +26,9 @@ pod_psql "$PRIMARY" -q -c \
 pod_psql "$PRIMARY" -q -c \
   "INSERT INTO t_load_fo(id, v) SELECT g, 'pre-'||g FROM generate_series(1,100) g" >/dev/null 2>&1
 PRE_MAX="$(pod_psql "$PRIMARY" -tAc 'SELECT max(id) FROM t_load_fo')"
-echo "  filas confirmadas antes del failover: $PRE_MAX"
+echo "  rows confirmed before the failover: $PRE_MAX"
 
-# El escritor toma las credenciales por secretKeyRef (no en la spec del Job).
+# The writer takes the credentials via secretKeyRef (not in the Job spec).
 oc -n "$NS" apply -f - >/dev/null <<EOF
 apiVersion: batch/v1
 kind: Job
@@ -35,7 +36,7 @@ metadata:
   name: $WRITER
   labels:
     app.kubernetes.io/name: pg-backup
-    app.kubernetes.io/instance: pg-ha
+    app.kubernetes.io/instance: plain-pg
     app.kubernetes.io/component: test
 spec:
   backoffLimit: 0
@@ -44,7 +45,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: pg-backup
-        app.kubernetes.io/instance: pg-ha
+        app.kubernetes.io/instance: plain-pg
         app.kubernetes.io/component: test
     spec:
       restartPolicy: Never
@@ -66,44 +67,45 @@ spec:
               done
           env:
             - name: PGHOST
-              value: postgres-rw
+              value: postgresql-rw
             - name: PGPORT
               value: "5432"
             - name: PGUSER
               valueFrom:
-                secretKeyRef: { name: postgres-credentials, key: POSTGRESQL_USER }
+                secretKeyRef: { name: postgresql-credentials, key: POSTGRESQL_USER }
             - name: PGPASSWORD
               valueFrom:
-                secretKeyRef: { name: postgres-credentials, key: POSTGRESQL_PASSWORD }
+                secretKeyRef: { name: postgresql-credentials, key: POSTGRESQL_PASSWORD }
             - name: PGDATABASE
               valueFrom:
-                secretKeyRef: { name: postgres-credentials, key: POSTGRESQL_DATABASE }
+                secretKeyRef: { name: postgresql-credentials, key: POSTGRESQL_DATABASE }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
 EOF
 
-sleep 6   # deja escribir unas filas antes de la caida
+sleep 6   # let a few rows be written before the failure
 
-echo "  (failover con el escritor activo)"
+echo "  (failover with the writer active)"
 TS_FENCE="$(date +%s%N)"
-FORCE=1 "$ROOT_DIR/scripts/failover-manual.sh" "$REPLICA" >/dev/null 2>&1 || c_fail "el failover fallo"
+FORCE=1 "$ROOT_DIR/scripts/failover-manual.sh" "$REPLICA" >/dev/null 2>&1 || c_fail "the failover failed"
 
 is_primary() { [ "$(pod_in_recovery "$1")" = "f" ]; }
-wait_for 300 "$REPLICA es primary" is_primary "$REPLICA"
+wait_for 300 "$REPLICA is primary" is_primary "$REPLICA"
 
-# Los datos confirmados antes del failover no se pierden
+# Data confirmed before the failover is not lost
 KEPT="$(pod_psql "$REPLICA" -tAc "SELECT count(*) FROM t_load_fo WHERE id <= $PRE_MAX" 2>/dev/null || echo 0)"
-check_eq "los $PRE_MAX registros previos sobrevivieron" "$PRE_MAX" "${KEPT:-0}"
+check_eq "the $PRE_MAX previous records survived" "$PRE_MAX" "${KEPT:-0}"
 
-echo "  (esperando al escritor)"
+echo "  (waiting for the writer)"
 wait_job_done "$WRITER" 240 >/dev/null 2>&1 || true
 WLOG="$(oc -n "$NS" logs "job/$WRITER" 2>/dev/null || true)"
 
-# "OK <id> <epoch_ns>": separo lo confirmado ANTES de que arranque el failover
-# (seguro del primary anterior) de lo demas. La comparacion es lexicografica
-# (mismo largo de marca) para no perder precision con numeros de 19 digitos.
+# "OK <id> <epoch_ns>": separate what was confirmed BEFORE the failover starts
+# (surely from the previous primary) from the rest. The comparison is
+# lexicographic (same stamp length) so as not to lose precision with 19-digit
+# numbers.
 ack_before() {
   local _ id ts
   while read -r _ id ts; do
@@ -127,9 +129,9 @@ MISSING="$(comm -23 <(printf '%s\n' "$ACKED_PRE") <(printf '%s\n' "$PRESENT"))"
 N_PRE="$(printf '%s\n' "$ACKED_PRE"  | grep -cE '^[0-9]+$' || true)"
 N_POST="$(printf '%s\n' "$ACKED_POST" | grep -cE '^[0-9]+$' || true)"
 N_MISS="$(printf '%s\n' "$MISSING"   | grep -cE '^[0-9]+$' || true)"
-echo "  confirmados antes del failover: $N_PRE | despues: $N_POST | perdidos: $N_MISS"
+echo "  confirmed before the failover: $N_PRE | after: $N_POST | lost: $N_MISS"
 
-# Lo perdido debe ser un sufijo contiguo de lo confirmado antes del failover.
+# What is lost must be a contiguous suffix of what was confirmed before the failover.
 missing_is_suffix() {
   local first_missing tail_count
   first_missing="$(printf '%s\n' "$MISSING" | grep -E '^[0-9]+$' | sort -n | head -1)"
@@ -138,26 +140,26 @@ missing_is_suffix() {
                 | awk -v m="$first_missing" '$1+0 >= m+0' | wc -l)"
   [ "$tail_count" -eq "$N_MISS" ]
 }
-check "lo perdido es un sufijo contiguo (sin divergencia dispersa)" missing_is_suffix
-check "no se perdio todo lo confirmado antes del failover" bash -c "[ $N_MISS -lt $N_PRE ]"
+check "what is lost is a contiguous suffix (no scattered divergence)" missing_is_suffix
+check "not all data confirmed before the failover was lost" bash -c "[ $N_MISS -lt $N_PRE ]"
 
-# Un solo primary en el cluster
+# A single primary in the cluster
 PRIMARIES=0
 for p in $(db_pods); do [ "$(pod_in_recovery "$p")" = "f" ] && PRIMARIES=$((PRIMARIES + 1)); done
-check_eq "exactamente un pod es primary al terminar" "1" "$PRIMARIES"
+check_eq "exactly one pod is primary at the end" "1" "$PRIMARIES"
 
-# La aplicacion puede volver a escribir por el Service
+# The application can write again through the Service
 MARK="post-fo-$(date +%s)"
 pod_psql "$REPLICA" -q -c "INSERT INTO t_load_fo(id, v) VALUES (9999, '$MARK')" >/dev/null 2>&1
-check_eq "se puede escribir en la base tras el failover" "1" \
+check_eq "the database can be written to after the failover" "1" \
   "$(pod_psql "$REPLICA" -tAc "SELECT count(*) FROM t_load_fo WHERE v='$MARK'" 2>/dev/null || echo 0)"
 
 oc -n "$NS" delete job "$WRITER" --ignore-not-found >/dev/null 2>&1 || true
 
 echo "  (failback)"
-FORCE=1 "$ROOT_DIR/scripts/failover-manual.sh" "$PRIMARY" >/dev/null 2>&1 || c_fail "el failback fallo"
-wait_for 300 "$PRIMARY vuelve a ser primary" is_primary "$PRIMARY"
-wait_for 300 "$REPLICA vuelve a ser standby" bash -c "[ \"\$(oc -n $NS get pod $REPLICA -o jsonpath='{.status.containerStatuses[0].ready}')\" = true ]"
-check_eq "$REPLICA vuelve a ser standby" "t" "$(pod_in_recovery "$REPLICA")"
+FORCE=1 "$ROOT_DIR/scripts/failover-manual.sh" "$PRIMARY" >/dev/null 2>&1 || c_fail "the failback failed"
+wait_for 300 "$PRIMARY is primary again" is_primary "$PRIMARY"
+wait_for 300 "$REPLICA is standby again" bash -c "[ \"\$(oc -n $NS get pod $REPLICA -o jsonpath='{.status.containerStatuses[0].ready}')\" = true ]"
+check_eq "$REPLICA is standby again" "t" "$(pod_in_recovery "$REPLICA")"
 
 t_summary

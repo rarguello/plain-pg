@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
 #
-# lib.sh -- helpers comunes. Se sourcea desde los otros scripts:
+# lib.sh -- common helpers. Sourced from the other scripts:
 #   source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 #
-# Requiere `oc` en el PATH y estar logueado en el cluster.
-# Variables: NAMESPACE (default pg-ha-lab).
+# Requires `oc` in the PATH and being logged in to the cluster.
+# Variables: NAMESPACE (default postgresql-lab).
 
-NS="${NAMESPACE:-pg-ha-lab}"
+NS="${NAMESPACE:-postgresql-lab}"
 
-# Ruta PGDATA real de la imagen sclorg (la usan los tests).
+# Real PGDATA path of the sclorg image (used by the tests).
 # shellcheck disable=SC2034
 PGDATA_PATH="/var/lib/pgsql/data/userdata"
 
-cm_value()     { oc -n "$NS" get cm postgres-role -o jsonpath="{.data.$1}"; }
-secret_value() { oc -n "$NS" get secret postgres-credentials -o jsonpath="{.data.$1}" | base64 -d; }
+cm_value()     { oc -n "$NS" get cm postgresql-role -o jsonpath="{.data.$1}"; }
+secret_value() { oc -n "$NS" get secret postgresql-credentials -o jsonpath="{.data.$1}" | base64 -d; }
 
 primary_pod()  { cm_value PRIMARY_POD; }
 
-# Imprime los pods que NO son el primary declarado (las replicas).
+# Prints the pods that are NOT the declared primary (the replicas).
 replica_pods() {
   local p; p="$(primary_pod)"
   db_pods | grep -vx "$p" || true
 }
 
-# Imprime los pods de la base de datos (primary + replicas), ordenados.
+# Prints the database pods (primary + replicas), sorted.
 db_pods() {
   oc -n "$NS" get pods \
     -l app.kubernetes.io/name=postgresql,app.kubernetes.io/component=database \
@@ -41,35 +41,35 @@ load_credentials() {
   REPL_PASSWORD="$(secret_value POSTGRESQL_MASTER_PASSWORD)"
 }
 
-# psql como usuario de la app, contra 127.0.0.1 dentro del pod.
+# psql as the app user, against 127.0.0.1 inside the pod.
 pod_psql() {
   local pod="$1"; shift
   oc -n "$NS" exec "$pod" -- env PGPASSWORD="$APP_PASSWORD" \
     psql -h 127.0.0.1 -U "$APP_USER" -d "$APP_DB" "$@"
 }
 
-# psql como superusuario (postgres), contra 127.0.0.1 dentro del pod.
+# psql as superuser (postgres), against 127.0.0.1 inside the pod.
 pod_psql_admin() {
   local pod="$1"; shift
   oc -n "$NS" exec "$pod" -- env PGPASSWORD="$ADMIN_PASSWORD" \
     psql -h 127.0.0.1 -U postgres -d postgres "$@"
 }
 
-# psql como superusuario contra un host arbitrario (para probar Services/DNS).
+# psql as superuser against an arbitrary host (to test Services/DNS).
 pod_psql_host() {
   local pod="$1" host="$2"; shift 2
   oc -n "$NS" exec "$pod" -- env PGPASSWORD="$ADMIN_PASSWORD" \
     psql -h "$host" -U postgres -d postgres "$@"
 }
 
-# Devuelve 'f' si el pod es primary, 't' si es standby, vacio si no responde.
+# Returns 'f' if the pod is primary, 't' if it is standby, empty if it does not respond.
 pod_in_recovery() {
   pod_psql_admin "$1" -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null || true
 }
 
-# Espera a que un Job termine (Complete o Failed). Imprime Complete|Failed|Timeout.
-# (`oc wait --for=condition=complete` no sirve para un Job que falla: se
-#  quedaria esperando hasta el timeout.)
+# Waits for a Job to finish (Complete or Failed). Prints Complete|Failed|Timeout.
+# (`oc wait --for=condition=complete` does not work for a Job that fails: it
+#  would keep waiting until the timeout.)
 wait_job_done() {
   local job="$1" timeout="${2:-1800}" i=0 cond
   while [ "$i" -lt "$timeout" ]; do
@@ -84,18 +84,18 @@ wait_job_done() {
   return 0
 }
 
-# Cuenta las replicas en estado 'streaming' segun el primary.
+# Counts the replicas in 'streaming' state according to the primary.
 streaming_count() {
   pod_psql_admin "$1" -tAc \
     "SELECT count(*) FROM pg_stat_replication WHERE state='streaming'" 2>/dev/null || echo 0
 }
 
-# Espera a que los pods de la BD esten Ready.
-# (El StatefulSet usa updateStrategy OnDelete, donde `oc rollout status` no
-#  aplica: "rollout status is only available for RollingUpdate strategy type".)
-# Uso: wait_db_ready [cantidad_esperada]
+# Waits for the DB pods to be Ready.
+# (The StatefulSet uses updateStrategy OnDelete, where `oc rollout status` does
+#  not apply: "rollout status is only available for RollingUpdate strategy type".)
+# Usage: wait_db_ready [expected_count]
 wait_db_ready() {
-  local want="${1:-$(oc -n "$NS" get sts postgres -o jsonpath='{.spec.replicas}' 2>/dev/null)}"
+  local want="${1:-$(oc -n "$NS" get sts postgresql -o jsonpath='{.spec.replicas}' 2>/dev/null)}"
   want="${want:-2}"
   local i=0 ready
   while [ "$i" -lt 300 ]; do

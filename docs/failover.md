@@ -1,136 +1,141 @@
 # Failover
 
-El "primary" es el pod que dice la clave `PRIMARY_POD` del ConfigMap
-`postgres-role`. Promover una réplica es cambiar ese valor y recrear los pods.
+The "primary" is the pod named by the `PRIMARY_POD` key of the `postgresql-role`
+ConfigMap. Promoting a replica is changing that value and recreating the pods.
 
-## Manual (el camino soportado)
+## Manual (the supported path)
 
 ```bash
-./scripts/failover-manual.sh              # promueve la primera réplica
-./scripts/failover-manual.sh postgres-1   # candidato explícito
+./scripts/failover-manual.sh              # promotes the first replica
+./scripts/failover-manual.sh postgresql-1   # explicit candidate
 ```
 
-El script hace, en este orden:
+The script does, in this order:
 
-0. Desactiva el failover automático mientras dura la operación (para que el
-   CronJob no interfiera) y lo reactiva al terminar.
-1. `PRIMARY_POD=<candidato>` en el ConfigMap.
-2. Reapunta los Services: `-rw` → candidato, `-ro` → ex-primary.
-3. **Fencing del ex-primary**: lo borra y espera a confirmar que el objeto del
-   pod cambió de UID (o desapareció). Si no lo puede confirmar, **revierte** el
-   ConfigMap y los Services y no promueve.
-4. Recrea el pod candidato: al arrancar ve que le toca ser primary, borra
-   `standby.signal` y **promueve**.
-5. Espera a confirmar. Si no promueve, **no** revierte al ex-primary (ya está
-   aislado): deja el estado declarado en el candidato y falla fuerte para que
-   intervenga una persona.
+0. Disables automatic failover for the duration of the operation (so the
+   CronJob does not interfere) and re-enables it when done.
+1. `PRIMARY_POD=<candidate>` in the ConfigMap.
+2. Repoints the Services: `-rw` → candidate, `-ro` → ex-primary.
+3. **Fencing of the ex-primary**: deletes it and waits to confirm that the pod
+   object changed UID (or disappeared). If it cannot confirm, it **reverts** the
+   ConfigMap and the Services and does not promote.
+4. Recreates the candidate pod: on startup it sees that it is the primary,
+   deletes `standby.signal` and **promotes**.
+5. Waits to confirm. If it does not promote, it does **not** revert to the
+   ex-primary (already isolated): it leaves the declared state on the candidate
+   and fails hard so a person intervenes.
 
-El fencing va **antes** de promover: así nunca hay dos primaries a la vez. El
-ex-primary, al recrearse, se re-siembra solo desde el nuevo primary.
+Fencing goes **before** promoting: that way there are never two primaries at
+once. The ex-primary, when recreated, re-seeds itself from the new primary.
 
-### A mano (equivalente)
+### By hand (equivalent)
 
-Mismo orden que el script: **fencing antes de promover**. Si en el paso 3 no se
-confirma que el ex-primary terminó, **no se promueve**.
+Same order as the script: **fencing before promoting**. If in step 3 it is not
+confirmed that the ex-primary finished, **it is not promoted**.
 
 ```bash
-NS=pg-ha-lab
-OLD=postgres-0     # primary actual
-NEW=postgres-1     # candidato
+NS=postgresql-lab
+OLD=postgresql-0     # current primary
+NEW=postgresql-1     # candidate
 
-# 0. Desactivar el failover automático mientras dura la operación
-oc -n $NS patch configmap postgres-role --type merge -p '{"data":{"AUTO_FAILOVER":"false"}}'
+# 0. Disable automatic failover for the duration of the operation
+oc -n $NS patch configmap postgresql-role --type merge -p '{"data":{"AUTO_FAILOVER":"false"}}'
 
-# 1. Declarar el candidato como primary
-oc -n $NS patch configmap postgres-role --type merge -p "{\"data\":{\"PRIMARY_POD\":\"$NEW\"}}"
+# 1. Declare the candidate as primary
+oc -n $NS patch configmap postgresql-role --type merge -p "{\"data\":{\"PRIMARY_POD\":\"$NEW\"}}"
 
-# 2. Reapuntar los Services
-oc -n $NS patch svc postgres-rw -p "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$NEW\"}}}"
-oc -n $NS patch svc postgres-ro -p "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$OLD\"}}}"
+# 2. Repoint the Services
+oc -n $NS patch svc postgresql-rw -p "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$NEW\"}}}"
+oc -n $NS patch svc postgresql-ro -p "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$OLD\"}}}"
 
-# 3. FENCING: borrar el ex-primary y CONFIRMAR que terminó
-oc -n $NS get pod $OLD -o jsonpath='{.metadata.uid}'; echo   # anotar el UID
+# 3. FENCING: delete the ex-primary and CONFIRM that it finished
+oc -n $NS get pod $OLD -o jsonpath='{.metadata.uid}'; echo   # note the UID
 oc -n $NS delete pod $OLD
-#   esperar y volver a consultar el UID: debe ser DISTINTO, o el pod no existir.
-#   Si el UID no cambia, NO seguir: el primary anterior sigue vivo.
+#   wait and query the UID again: it must be DIFFERENT, or the pod must not exist.
+#   If the UID does not change, DO NOT continue: the previous primary is still alive.
 
-# 4. Promover el candidato
+# 4. Promote the candidate
 oc -n $NS delete pod $NEW
-oc -n $NS exec $NEW -- psql -U postgres -tAc 'SELECT pg_is_in_recovery();'  # debe dar f
+oc -n $NS exec $NEW -- psql -U postgres -tAc 'SELECT pg_is_in_recovery();'  # must return f
 
-# 5. Reactivar el automático
-oc -n $NS patch configmap postgres-role --type merge -p '{"data":{"AUTO_FAILOVER":"true"}}'
+# 5. Re-enable the automatic one
+oc -n $NS patch configmap postgresql-role --type merge -p '{"data":{"AUTO_FAILOVER":"true"}}'
 ```
 
-Es fácil equivocarse a mano (sobre todo en el paso 3). El script
-`failover-manual.sh` hace exactamente esto, con verificación de cada paso y
-reversión si algo falla: usalo salvo que no tengas otra opción.
+It is easy to make a mistake by hand (especially in step 3). The
+`failover-manual.sh` script does exactly this, with verification of each step and
+rollback if something fails: use it unless you have no other option.
 
-## Automático (opcional, *best-effort*)
+## Automatic (optional, *best-effort*)
 
-`components/failover-automatico` agrega un CronJob que corre cada minuto:
+`components/failover-automatico` adds a CronJob that runs every minute:
 
-1. Lee el rol declarado **fresco desde la API** (no de variables de entorno) y
-   si el primary responde (`pg_is_in_recovery()` = `f`), no hace nada.
-2. Si no responde, espera `FAILOVER_GRACE_SECONDS` (por defecto 120 s) por si es
-   transitorio.
-3. Elige una réplica sana (`pg_is_in_recovery()` = `t`).
-4. Declara el candidato como primary y reapunta los Services.
-5. **Fencing**: borra el ex-primary y espera a confirmar que su pod cambió de
-   UID (o desapareció). Si no lo puede confirmar, **revierte** todo y no
-   promueve.
-6. Recrea el pod candidato para promoverlo y confirma. Si no promueve, no
-   revierte (el ex-primary ya está aislado): falla fuerte.
+1. Reads the declared role **fresh from the API** (not from environment variables)
+   and if the primary responds (`pg_is_in_recovery()` = `f`), it does nothing.
+2. If it does not respond, it waits `FAILOVER_GRACE_SECONDS` (default 120 s) in
+   case it is transient.
+3. Picks a healthy replica (`pg_is_in_recovery()` = `t`).
+4. Declares the candidate as primary and repoints the Services.
+5. **Fencing**: deletes the ex-primary and waits to confirm that its pod changed
+   UID (or disappeared). If it cannot confirm, it **reverts** everything and does
+   not promote.
+6. Recreates the candidate pod to promote it and confirms. If it does not promote,
+   it does not revert (the ex-primary is already isolated): it fails hard.
 
-Se configura en el ConfigMap `postgres-role`:
+It is configured in the `postgresql-role` ConfigMap:
 
 ```bash
-oc -n pg-ha-lab patch configmap postgres-role --type merge \
+oc -n postgresql-lab patch configmap postgresql-role --type merge \
   -p '{"data":{"AUTO_FAILOVER":"true","FAILOVER_GRACE_SECONDS":"120"}}'
 ```
 
-`AUTO_FAILOVER=false` lo desactiva sin borrar el CronJob (útil en
-mantenimiento). El overlay `lab-manual` no lo incluye.
+`AUTO_FAILOVER=false` disables it without deleting the CronJob (useful during
+maintenance). The `lab-manual` overlay does not include it.
 
-### Qué NO hace (leer antes de producción)
+### What it does NOT do (read before production)
 
-- **El fencing no es STONITH: no garantiza que el proceso viejo esté muerto.**
-  Se basa en que Kubernetes confirme la terminación del pod (el objeto
-  desaparece o cambia de UID). Si el **nodo** del ex-primary queda particionado
-  del API server, el objeto del pod puede desaparecer al vencer el grace period
-  aunque el contenedor siga ejecutándose: el fencing daría un falso positivo y
-  podrían quedar dos primaries (split-brain).
+- **Fencing is not STONITH: it does not guarantee the old process is dead.** It
+  relies on Kubernetes confirming pod termination (the object disappears or
+  changes UID). If the **node** of the ex-primary is partitioned from the API
+  server, the pod object may disappear when the grace period expires even though
+  the container is still running: fencing would give a false positive and two
+  primaries could remain (split-brain).
 
-  **Consecuencia práctica:** mientras no haya fencing externo del nodo, el
-  failover automático es aceptable para un laboratorio o para escenarios donde
-  la caída es del pod (no del nodo). Para producción con garantía real:
-  - habilitá aislamiento a nivel de nodo (por ejemplo `MachineHealthCheck` +
-    `fence_ack`, o el mecanismo del proveedor de infraestructura) antes de
-    confiar en el failover automático; o
-  - dejá `AUTO_FAILOVER=false` y operá el failover manual, donde una persona
-    puede verificar que el nodo/primary anterior está realmente fuera.
+  **Practical consequence:** while there is no external fencing of the node,
+  automatic failover is acceptable for a lab or for scenarios where the failure
+  is of the pod (not the node). For production with a real guarantee:
+  - enable node-level isolation (for example `MachineHealthCheck` +
+    `fence_ack`, or the infrastructure provider's mechanism) before trusting
+    automatic failover; or
+  - leave `AUTO_FAILOVER=false` and operate manual failover, where a person can
+    verify that the previous node/primary is really out.
 
-  El repo **no** afirma aislamiento físico del primary anterior: sólo verifica
-  el pod.
-- **La replicación es asíncrona**: un failover puede perder las últimas
-  transacciones que no llegaron a replicarse. Si eso no es aceptable, activá
-  replicación sincrónica (ver abajo): el commit espera a la réplica, con el
-  costo de que si la réplica se cae, la escritura se bloquea.
-- **La detección es por timeout**, no por consenso: con `GRACE` corto y un
-  primary lento, puede promover de más. Un valor conservador (120–300 s) es
-  sensato.
-- **No reintenta más allá de lo descripto.** Si la promoción falla, queda el
-  estado declarado en el candidato y hay que intervenir a mano.
+  The repo does **not** claim physical isolation of the previous primary: it
+  only verifies the pod.
+- **Replication is asynchronous**: a failover can lose the last transactions that
+  did not get replicated. If that is not acceptable, enable synchronous
+  replication (see below): the commit waits for the replica, at the cost that if
+  the replica goes down, writes block.
+- **Detection is by timeout**, not by consensus: with a short `GRACE` and a slow
+  primary, it may promote too much. A conservative value (120–300 s) is
+  sensible.
+- **It does not retry beyond what is described.** If the promotion fails, the
+  declared state on the candidate remains and a person must intervene.
+- **A failover to a high ordinal is fragile with an HPA.** If the new primary is
+  `postgresql-2` or higher and the read-scaling HPA later scales the fleet down,
+  it removes the highest ordinals — which can be the primary. The scripts warn
+  when this happens; fail back to `postgresql-0` before letting the fleet
+  shrink. See [scaling.md](scaling.md).
 
-### Replicación sincrónica (failover sin pérdida)
+### Synchronous replication (failover without loss)
 
-En el primary:
+On the primary:
 
 ```sql
 ALTER SYSTEM SET synchronous_standby_names = 'walreceiver';
 SELECT pg_reload_conf();
 ```
 
-Con `synchronous_commit = on` (default), cada commit espera a la réplica. Un
-failover no pierde datos confirmados. **Trade-off:** si la réplica se cae, las
-escrituras se bloquean hasta que vuelva (o hasta sacar el nombre de la lista).
+With `synchronous_commit = on` (default), each commit waits for the replica. A
+failover loses no confirmed data. **Trade-off:** if the replica goes down, writes
+block until it returns (or until the name is removed from the list).

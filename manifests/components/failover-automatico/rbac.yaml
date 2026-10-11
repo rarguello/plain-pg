@@ -1,63 +1,64 @@
 ###############################################################################
 # rbac.yaml
 #
-# Permisos MINIMOS del CronJob de failover automatico. Todo scopeado al
-# namespace (Role, no ClusterRole) y, donde se puede, a recursos concretos.
+# MINIMAL permissions for the automatic failover CronJob. Everything scoped to
+# the namespace (Role, not ClusterRole) and, where possible, to specific
+# resources.
 #
-# Nota: el borrado de pods no se puede acotar por nombre (los pods de un
-# StatefulSet tienen nombres variables), asi que queda a nivel de namespace.
+# Note: pod deletion cannot be scoped by name (StatefulSet pods have variable
+# names), so it stays at the namespace level.
 ###############################################################################
 
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: postgres-failover
+  name: postgresql-failover
   labels:
     app.kubernetes.io/name: pg-failover
-    app.kubernetes.io/instance: pg-ha
-    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/instance: plain-pg
+    app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: failover
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: postgres-failover
+  name: postgresql-failover
   labels:
     app.kubernetes.io/name: pg-failover
-    app.kubernetes.io/instance: pg-ha
-    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/instance: plain-pg
+    app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: failover
 rules:
-  # Leer el rol declarado y los pods; aislar (borrar) el ex-primary.
+  # Read the declared role and the pods; isolate (delete) the ex-primary.
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "delete"]
-  # Leer y actualizar SOLO el ConfigMap de rol.
+  # Read and update ONLY the role ConfigMap.
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "patch"]
-    resourceNames: ["postgres-role"]
-  # Reapuntar SOLO los Services de la base (y leerlos para verificar).
+    resourceNames: ["postgresql-role"]
+  # Repoint ONLY the DB Services (and read them to verify).
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "patch"]
-    resourceNames: ["postgres-rw", "postgres-ro"]
+    resourceNames: ["postgresql-rw", "postgresql-ro"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: postgres-failover
+  name: postgresql-failover
   labels:
     app.kubernetes.io/name: pg-failover
-    app.kubernetes.io/instance: pg-ha
-    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/instance: plain-pg
+    app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: failover
 subjects:
   - kind: ServiceAccount
-    name: postgres-failover
+    name: postgresql-failover
 roleRef:
   kind: Role
-  name: postgres-failover
+  name: postgresql-failover
   apiGroup: rbac.authorization.k8s.io

@@ -1,8 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Base "pura": objetos core de Kubernetes, sin namespace, sin imagen fijada.
-# Se usa siempre a traves de un overlay (overlays/lab, overlays/lab-manual).
+# "Pure" base: Kubernetes core objects, no namespace, no pinned image.
+# It is always used through an overlay (overlays/lab, overlays/lab-manual).
 
 resources:
   - namespace.yaml

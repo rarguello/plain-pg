@@ -1,74 +1,73 @@
 ###############################################################################
 # statefulset.yaml
 #
-# StatefulSet de PostgreSQL 18 (UBI) con replicacion streaming.
+# PostgreSQL 18 (UBI) StatefulSet with streaming replication.
 #
-#   postgres-0 -> primary (lectura/escritura)
-#   postgres-1 -> replica (hot standby, solo lectura)
+#   postgresql-0 -> primary (read/write)
+#   postgresql-1 -> replica (hot standby, read-only)
 #
-# El rol NO se deriva del ordinal en duro: se lee del ConfigMap postgres-role.
-# Por defecto postgres-0 es primary, pero tras un failover el primary puede ser
-# otro ordinal. Ver docs/04-failover-manual.md.
+# The role is NOT derived from the ordinal in a hardcoded way: it is read from
+# the postgresql-role ConfigMap. By default postgresql-0 is primary, but after a
+# failover the primary may be another ordinal. See docs/failover.md.
 #
-# Reutiliza la imagen sclorg (registry.redhat.io/rhel10/postgresql-18):
-#   - PGDATA real = /var/lib/pgsql/data/userdata (lo fija set_pgdata)
-#   - initdb + creacion de usuario/db los hace el entrypoint de la imagen
-#   - nuestro entrypoint solo decide el rol y prepara el PGDATA
+# Reuses the sclorg image (registry.redhat.io/rhel10/postgresql-18):
+#   - real PGDATA = /var/lib/pgsql/data/userdata (set by set_pgdata)
+#   - initdb + user/db creation are done by the image entrypoint
+#   - our entrypoint only decides the role and prepares PGDATA
 ###############################################################################
 
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: postgres
+  name: postgresql
   labels:
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
-    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/instance: postgresql
+    app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: database
 spec:
   replicas: 2
-  serviceName: postgres-hl
+  serviceName: postgresql-hl
 
-  # Parallel: los pods se crean sin depender del orden. Necesario porque,
-  # despues de un failover, el primary puede ser postgres-1: si se recrean los
-  # dos pods a la vez, con OrderedReady el StatefulSet esperaria a que
-  # postgres-0 (ahora replica) esté Ready antes de crear a postgres-1, y
-  # postgres-0 espera a su primary -> deadlock. Cada replica espera al primary
-  # explicitamente en el entrypoint (wait_for_primary), asi que no hace falta
-  # el orden.
+  # Parallel: pods are created without depending on order. Needed because,
+  # after a failover, the primary may be postgresql-1: if both pods are recreated
+  # at once, with OrderedReady the StatefulSet would wait for postgresql-0 (now a
+  # replica) to be Ready before creating postgresql-1, and postgresql-0 waits for
+  # its primary -> deadlock. Each replica waits for the primary explicitly in
+  # the entrypoint (wait_for_primary), so the order is not needed.
   podManagementPolicy: Parallel
 
-  # OnDelete: cambiar el template NO reinicia pods automaticamente. En una BD
-  # eso es lo correcto (nada de restarts sorpresa por un `oc apply`). Para
-  # aplicar un cambio de template hay que borrar los pods a mano.
+  # OnDelete: changing the template does NOT restart pods automatically. On a
+  # DB that is the right thing (no surprise restarts from an `oc apply`). To
+  # apply a template change the pods must be deleted by hand.
   updateStrategy:
     type: OnDelete
 
   selector:
     matchLabels:
       app.kubernetes.io/name: postgresql
-      app.kubernetes.io/instance: postgres
+      app.kubernetes.io/instance: postgresql
 
   template:
     metadata:
       labels:
         app.kubernetes.io/name: postgresql
-        app.kubernetes.io/instance: postgres
-        app.kubernetes.io/part-of: pg-ha
+        app.kubernetes.io/instance: postgresql
+        app.kubernetes.io/part-of: plain-pg
         app.kubernetes.io/component: database
     spec:
       terminationGracePeriodSeconds: 120
 
-      # Cumple PodSecurity "restricted" y el SCC restricted-v2 de OpenShift.
-      # NO se fija fsGroup: OpenShift asigna uno del rango del namespace y deja
-      # el PVC escribible por el contenedor (UID aleatorio + ese grupo).
+      # Satisfies PodSecurity "restricted" and OpenShift's restricted-v2 SCC.
+      # fsGroup is NOT set: OpenShift assigns one from the namespace range and
+      # leaves the PVC writable by the container (random UID + that group).
       securityContext:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
 
-      # No poner los dos pods en el mismo nodo si hay >1 nodo.
-      # preferred (no required) para no bloquear en clusters de 1 nodo (SNO).
+      # Do not put both pods on the same node if there is more than 1 node.
+      # preferred (not required) so it does not block on 1-node clusters (SNO).
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -78,7 +77,7 @@ spec:
                 labelSelector:
                   matchLabels:
                     app.kubernetes.io/name: postgresql
-                    app.kubernetes.io/instance: postgres
+                    app.kubernetes.io/instance: postgresql
 
       containers:
         - name: postgresql
@@ -97,12 +96,12 @@ spec:
             capabilities:
               drop: ["ALL"]
 
-          # Credenciales: POSTGRESQL_USER/PASSWORD/DATABASE (usuario de la app),
-          # POSTGRESQL_ADMIN_PASSWORD (superusuario postgres) y
-          # POSTGRESQL_MASTER_USER/PASSWORD (usuario de replicacion).
+          # Credentials: POSTGRESQL_USER/PASSWORD/DATABASE (app user),
+          # POSTGRESQL_ADMIN_PASSWORD (postgres superuser) and
+          # POSTGRESQL_MASTER_USER/PASSWORD (replication user).
           envFrom:
             - secretRef:
-                name: postgres-credentials
+                name: postgresql-credentials
 
           env:
             - name: POD_NAMESPACE
@@ -110,11 +109,11 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: HL_SERVICE
-              value: postgres-hl
+              value: postgresql-hl
             - name: PGPORT
               value: "5432"
             - name: ROLE_FILE
-              value: /etc/pg-ha/role/PRIMARY_POD
+              value: /etc/plain-pg/role/PRIMARY_POD
             - name: WAIT_PRIMARY_RETRIES
               value: "180"
 
@@ -130,7 +129,7 @@ spec:
               command: ["/bin/bash", "/opt/app-root/src/bin/healthcheck.sh"]
             periodSeconds: 5
             timeoutSeconds: 5
-            failureThreshold: 60      # hasta 5 min (pg_basebackup incluido)
+            failureThreshold: 60      # up to 5 min (pg_basebackup included)
 
           readinessProbe:
             exec:
@@ -161,13 +160,13 @@ spec:
               mountPath: /opt/app-root/src/bin
               readOnly: true
             - name: role
-              mountPath: /etc/pg-ha/role
+              mountPath: /etc/plain-pg/role
               readOnly: true
 
       volumes:
         - name: scripts
           configMap:
-            name: postgres-scripts
+            name: postgresql-scripts
             defaultMode: 0755
             items:
               - key: configure-and-run.sh
@@ -176,19 +175,19 @@ spec:
                 path: healthcheck.sh
         - name: role
           configMap:
-            name: postgres-role
+            name: postgresql-role
 
   volumeClaimTemplates:
     - metadata:
         name: pgdata
         labels:
           app.kubernetes.io/name: postgresql
-          app.kubernetes.io/instance: postgres
-          app.kubernetes.io/part-of: pg-ha
+          app.kubernetes.io/instance: postgresql
+          app.kubernetes.io/part-of: plain-pg
       spec:
         accessModes:
           - ReadWriteOnce
-        # Sin storageClassName: usa la StorageClass por defecto del cluster.
+        # No storageClassName: uses the cluster default StorageClass.
         resources:
           requests:
             storage: 2Gi

@@ -1,44 +1,50 @@
 ###############################################################################
 # services.yaml
 #
-# Tres Services, tres propositos:
+# Four Services:
 #
-#   postgres-hl  Headless (clusterIP: None). Da DNS estable por pod:
-#                 postgres-0.postgres-hl.pg-ha-lab.svc.cluster.local
-#                 postgres-1.postgres-hl.pg-ha-lab.svc.cluster.local
-#               Es lo que permite que la replica encuentre al primary por
-#               nombre, sin importar IP/nodo. OBLIGATORIO para el StatefulSet.
+#   postgresql-hl  Headless (clusterIP: None). Gives stable per-pod DNS:
+#                  postgresql-0.postgresql-hl.<ns>.svc.cluster.local
+#                  postgresql-1.postgresql-hl.<ns>.svc.cluster.local
+#                This is how a replica finds the primary by name, no matter
+#                which node it runs on. Required by the StatefulSet.
 #
-#   postgres-rw  Endpoint de LECTURA/ESCRITURA. Selecciona UNICAMENTE el pod
-#               que es primary (por el label statefulset.kubernetes.io/pod-name,
-#               que Kubernetes pone solo). Las apps apuntan aqui.
+#   postgresql-rw  ClusterIP for READ/WRITE. Selects only the pod that is the
+#                primary (via the statefulset.kubernetes.io/pod-name label that
+#                Kubernetes sets automatically). Applications point here.
 #
-#   postgres-ro  Endpoint de SOLO LECTURA. Selecciona la(s) replica(s).
+#   postgresql-r   ClusterIP for READS, load-balanced across ALL Ready instances
+#                (primary + replicas). Balances per TCP connection, not per
+#                query. It needs no repointing after a failover: it always
+#                selects every DB pod.
 #
-# NOTA sobre el failover (importante): estos Services seleccionan por nombre de
-# pod, no por rol. Cuando se promueve una replica hay que reapuntar -rw y -ro
-# (lo hacen scripts/failover-manual.sh y el CronJob de failover automatico).
-# Para N>1 replicas, agregar el pod-name de cada replica al selector de -ro.
+#   postgresql-ro  ClusterIP for READS against the replica(s) only.
+#
+# FAILOVER NOTE: -rw and -ro select by pod name, not by role, so promoting a
+# replica requires repointing them (scripts/failover-manual.sh and the
+# automatic failover CronJob do it). -r and -hl never need repointing.
+# With more than one replica, add each replica's pod name to the -ro selector
+# (or use -r, which covers them all).
 ###############################################################################
 
-# --- Headless: DNS estable entre pods ---
+# --- Headless: stable DNS between pods ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres-hl
+  name: postgresql-hl
   labels:
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
-    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/instance: postgresql
+    app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: database
 spec:
   clusterIP: None
-  # Resolver los pods por DNS aunque todavia no pasen el readiness probe.
-  # Necesario para que la replica encuentre al primary durante el arranque.
+  # Resolve pods by DNS even before they pass the readiness probe. Needed so a
+  # replica can reach the primary while it is still starting up.
   publishNotReadyAddresses: true
   selector:
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
+    app.kubernetes.io/instance: postgresql
   ports:
     - name: postgresql
       port: 5432
@@ -46,25 +52,25 @@ spec:
       protocol: TCP
 
 ---
-# --- Lectura/Escritura: solo el primary ---
+# --- Read/Write: the primary only ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres-rw
+  name: postgresql-rw
   labels:
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
-    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/instance: postgresql
+    app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: primary
   annotations:
-    pg-ha/description: >-
-      Apunta exclusivamente al pod primary. Usar para lectura/escritura.
-      En failover, reapuntar con scripts/failover-manual.sh.
+    plain-pg/description: >-
+      Points only at the primary pod. Use it for read/write.
+      On failover, repoint it with scripts/failover-manual.sh.
 spec:
   selector:
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
-    statefulset.kubernetes.io/pod-name: postgres-0
+    app.kubernetes.io/instance: postgresql
+    statefulset.kubernetes.io/pod-name: postgresql-0
   ports:
     - name: postgresql
       port: 5432
@@ -72,24 +78,51 @@ spec:
       protocol: TCP
 
 ---
-# --- Solo lectura: la(s) replica(s) ---
+# --- Read-only, load-balanced across every instance ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres-ro
+  name: postgresql-r
   labels:
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
-    app.kubernetes.io/part-of: pg-ha
-    app.kubernetes.io/component: replica
+    app.kubernetes.io/instance: postgresql
+    app.kubernetes.io/part-of: plain-pg
+    app.kubernetes.io/component: read
   annotations:
-    pg-ha/description: >-
-      Apunta a la replica (hot standby). Sirve lecturas en tiempo real.
+    plain-pg/description: >-
+      Reads load-balanced across all Ready instances (primary + replicas).
+      Balances per connection. Do NOT send writes here: they would land on a
+      random instance (use postgresql-rw for writes).
 spec:
   selector:
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
-    statefulset.kubernetes.io/pod-name: postgres-1
+    app.kubernetes.io/instance: postgresql
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+      protocol: TCP
+
+---
+# --- Read-only: the replica(s) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql-ro
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: postgresql
+    app.kubernetes.io/part-of: plain-pg
+    app.kubernetes.io/component: replica
+  annotations:
+    plain-pg/description: >-
+      Points at the replica (hot standby). Serves real-time reads without
+      touching the primary.
+spec:
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: postgresql
+    statefulset.kubernetes.io/pod-name: postgresql-1
   ports:
     - name: postgresql
       port: 5432

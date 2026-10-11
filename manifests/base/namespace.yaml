@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: pg-ha-lab
+  name: postgresql-lab
   labels:
-    app.kubernetes.io/part-of: pg-ha
-    # Perfil de seguridad: los pods corren como no-root (default de OpenShift).
+    app.kubernetes.io/part-of: plain-pg
+    # Security profile: pods run as non-root (OpenShift default).
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted

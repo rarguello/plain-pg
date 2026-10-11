@@ -1,20 +1,20 @@
-# Atajos. Todos los targets asumen `oc` logueado en el cluster.
+# Shortcuts. All targets assume `oc` logged in to the cluster.
 SHELL    := /usr/bin/env bash
-NS       ?= pg-ha-lab
+NS       ?= postgresql-lab
 OVERLAY  ?= manifests/overlays/lab
-RENDERED := /tmp/pg-ha-lab-rendered.yaml
+RENDERED := /tmp/postgresql-lab-rendered.yaml
 
 .PHONY: help deploy teardown verify failover backup lint test test-quick
 
 help:
-	@echo "make deploy       despliega $(OVERLAY) en $(NS)"
-	@echo "make teardown     borra los recursos (deja el namespace)"
-	@echo "make verify       verifica la replicacion"
-	@echo "make failover     promueve una replica"
-	@echo "make backup       backup manual"
-	@echo "make lint         shellcheck + kustomize + scripts embebidos"
-	@echo "make test-quick   pruebas no destructivas"
-	@echo "make test         todas las pruebas (incluye destructivas)"
+	@echo "make deploy       deploys $(OVERLAY) in $(NS)"
+	@echo "make teardown     deletes the resources (keeps the namespace)"
+	@echo "make verify       verifies replication"
+	@echo "make failover     promotes a replica"
+	@echo "make backup       manual backup"
+	@echo "make lint         shellcheck + kustomize + embedded scripts"
+	@echo "make test-quick   non-destructive tests"
+	@echo "make test         all tests (includes destructive)"
 
 deploy:
 	./scripts/deploy.sh $(OVERLAY)

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Valida los scripts embebidos en los ConfigMaps.
+"""Validates the scripts embedded in the ConfigMaps.
 
-Para cada ConfigMap de los manifiestos renderizados, extrae las claves *.sh y
-les corre `bash -n` (y `shellcheck -S warning` si esta instalado).
+For each ConfigMap in the rendered manifests, it extracts the *.sh keys and
+runs `bash -n` on them (and `shellcheck -S warning` if installed).
 
-Uso:
+Usage:
     oc kustomize manifests/overlays/lab > /tmp/lab.yaml
     tools/check-scripts.py /tmp/lab.yaml
 """
@@ -17,7 +17,7 @@ import tempfile
 try:
     import yaml
 except ImportError:
-    print("ERROR: falta pyyaml (pip install pyyaml)", file=sys.stderr)
+    print("ERROR: pyyaml is missing (pip install pyyaml)", file=sys.stderr)
     sys.exit(2)
 
 

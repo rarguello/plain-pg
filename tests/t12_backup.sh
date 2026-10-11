@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# t12 -- Backups: el CronJob existe, un backup manual produce un dump valido y
-#        el dump se puede restaurar en una base nueva.
+# t12 -- Backups: the CronJob exists, a manual backup produces a valid dump and
+#        the dump can be restored into a new database.
 source "$(dirname "${BASH_SOURCE[0]}")/lib-test.sh"
 load_credentials
 
 echo "### t12 backups"
 
-check "existe el CronJob postgres-backup" oc -n "$NS" get cronjob postgres-backup
-check "existe el PVC postgres-backups"    oc -n "$NS" get pvc postgres-backups
-check "el CronJob de backup NO comparte labels con la BD" \
-  bash -c "! oc -n $NS get cronjob postgres-backup -o jsonpath='{.spec.jobTemplate.spec.template.metadata.labels}' | grep -q 'name.:.postgresql'"
+check "CronJob postgresql-backup exists" oc -n "$NS" get cronjob postgresql-backup
+check "PVC postgresql-backups exists"    oc -n "$NS" get pvc postgresql-backups
+check "the backup CronJob does NOT share labels with the DB" \
+  bash -c "! oc -n $NS get cronjob postgresql-backup -o jsonpath='{.spec.jobTemplate.spec.template.metadata.labels}' | grep -q 'name.:.postgresql'"
 
 PRIMARY="$(primary_pod)"
 pod_psql "$PRIMARY" -q -c \
@@ -19,26 +19,26 @@ pod_psql "$PRIMARY" -q -c "INSERT INTO t_backup(v) VALUES ('$MARK')" >/dev/null 
 
 echo "  (backup manual)"
 OUT="$("$ROOT_DIR/scripts/backup-now.sh" 2>&1 || true)"
-check_contains "el backup termina OK" "[pg-backup] OK" "$OUT"
-check_contains "el backup genero el archivo de globals" "-globals.sql" "$OUT"
+check_contains "the backup ends OK" "[pg-backup] OK" "$OUT"
+check_contains "the backup generated the globals file" "-globals.sql" "$OUT"
 DUMP="$(printf '%s' "$OUT" | grep -oE '[0-9]{8}-[0-9]{6}-[A-Za-z0-9_]+\.dump' | tail -1)"
-check "el backup genero un dump" bash -c "[ -n '$DUMP' ]"
+check "the backup generated a dump" bash -c "[ -n '$DUMP' ]"
 
 if [ -n "$DUMP" ]; then
-  echo "  (restore de $DUMP en una base nueva)"
+  echo "  (restore of $DUMP into a new database)"
   TARGET="restore_test_$$"
   ROUT="$("$ROOT_DIR/scripts/restore-backup.sh" "/backups/$DUMP" "$TARGET" 2>&1 || true)"
-  check_contains "el restore termina OK" "[pg-restore] OK" "$ROUT"
+  check_contains "the restore ends OK" "[pg-restore] OK" "$ROUT"
 
   CNT="$(oc -n "$NS" exec "$PRIMARY" -- env PGPASSWORD="$ADMIN_PASSWORD" \
           psql -h 127.0.0.1 -U postgres -d "$TARGET" -tAc \
           "SELECT count(*) FROM t_backup WHERE v='$MARK'" 2>/dev/null || echo 0)"
-  check_eq "el backup restaurado contiene la fila de control" "1" "${CNT:-0}"
+  check_eq "the restored backup contains the control row" "1" "${CNT:-0}"
 
-  # Con la base ya creada, el restore NO debe pisarla
-  check "el restore se niega a pisar una base existente" \
+  # With the database already created, the restore must NOT overwrite it
+  check "the restore refuses to overwrite an existing database" \
     bash -c "! '$ROOT_DIR/scripts/restore-backup.sh' '/backups/$DUMP' '$TARGET' >/dev/null 2>&1"
-  check "el restore se niega a usar la base de la app como destino" \
+  check "the restore refuses to use the app database as target" \
     bash -c "! '$ROOT_DIR/scripts/restore-backup.sh' '/backups/$DUMP' '$APP_DB' >/dev/null 2>&1"
 
   oc -n "$NS" exec "$PRIMARY" -- env PGPASSWORD="$ADMIN_PASSWORD" \
@@ -46,8 +46,8 @@ if [ -n "$DUMP" ]; then
     >/dev/null 2>&1 || true
 fi
 
-# La retencion esta configurada
-check_contains "la retencion de backups esta configurada" "BACKUP_RETENTION_DAYS" \
-  "$(oc -n "$NS" get cronjob postgres-backup -o jsonpath='{.spec.jobTemplate.spec.template.spec.containers[0].env}' 2>/dev/null)"
+# Retention is configured
+check_contains "backup retention is configured" "BACKUP_RETENTION_DAYS" \
+  "$(oc -n "$NS" get cronjob postgresql-backup -o jsonpath='{.spec.jobTemplate.spec.template.spec.containers[0].env}' 2>/dev/null)"
 
 t_summary

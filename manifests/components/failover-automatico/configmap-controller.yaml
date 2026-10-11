@@ -1,50 +1,52 @@
 ###############################################################################
 # configmap-controller.yaml
 #
-# Controlador de failover automatico (NO es un operador: es un script en un
+# Automatic failover controller (it is NOT an operator: it is a script in a
 # CronJob).
 #
-# Secuencia:
-#   1. Lee el ConfigMap postgres-role FRESCO desde la API.
-#   2. Si el primary declarado responde, no hace nada.
-#   3. Si no responde, espera FAILOVER_GRACE_SECONDS (por si es transitorio).
-#   4. Elige una replica sana (pg_is_in_recovery() = t).
-#   5. RELEE el ConfigMap: si el rol cambio o el automatico se desactivo durante
-#      la gracia (p.ej. un failover manual), aborta.
-#   6. Declara el candidato como primary (con control de resourceVersion) y
-#      reapunta los Services.
-#   7. FENCING verificable del ex-primary: lo borra y espera a confirmar que el
-#      pod desaparecio o cambio de UID. Distingue "no existe" (404) de un error
-#      de API: ante un error desconocido aborta y revierte.
-#   8. Promueve el candidato (recrea el pod) y confirma.
+# Sequence:
+#   1. Reads the postgresql-role ConfigMap FRESH from the API.
+#   2. If the declared primary responds, it does nothing.
+#   3. If it does not respond, it waits FAILOVER_GRACE_SECONDS (in case it is
+#      transient).
+#   4. Picks a healthy replica (pg_is_in_recovery() = t).
+#   5. RE-READS the ConfigMap: if the role changed or automatic failover was
+#      disabled during the grace period (e.g. a manual failover), it aborts.
+#   6. Declares the candidate as primary (with resourceVersion control) and
+#      repoints the Services.
+#   7. Verifiable FENCING of the ex-primary: deletes it and waits to confirm
+#      that the pod disappeared or changed UID. Distinguishes "does not exist"
+#      (404) from an API error: on an unknown error it aborts and reverts.
+#   8. Promotes the candidate (recreates the pod) and confirms.
 #
-# LIMITACION de fencing (leer docs/failover.md): si el NODO del ex-primary queda
-# particionado del API server, el objeto del pod puede desaparecer al vencer el
-# grace period aunque el contenedor siga vivo. No hay STONITH real.
+# Fencing LIMITATION (read docs/failover.md): if the NODE of the ex-primary
+# becomes partitioned from the API server, the pod object may disappear when the
+# grace period expires even though the container is still alive. There is no
+# real STONITH.
 ###############################################################################
 
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: postgres-failover-scripts
+  name: postgresql-failover-scripts
   labels:
     app.kubernetes.io/name: pg-failover
-    app.kubernetes.io/instance: pg-ha
-    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/instance: plain-pg
+    app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: failover
 data:
   failover-controller.sh: |
     #!/bin/bash
     set -uo pipefail
 
-    # Los logs van a STDERR: api_raw() se usa dentro de command substitutions y
-    # no queremos que un mensaje se mezcle con el cuerpo capturado.
+    # Logs go to STDERR: api_raw() is used inside command substitutions and we
+    # do not want a message mixed into the captured body.
     log() { echo "[pg-failover][$(date -u +%FT%TZ)] $*" >&2; }
 
-    # La API puede devolver el JSON con indentacion (multilinea); se compacta
-    # antes de parsear con grep.
+    # The API may return JSON with indentation (multiline); it is compacted
+    # before parsing with grep.
     json_compact() { tr -d ' \n\r\t'; }
-    json_field() {   # json_field <json> <clave>
+    json_field() {   # json_field <json> <key>
       printf '%s' "$1" | json_compact \
         | grep -o "\"$2\":\"[^\"]*\"" | head -1 | cut -d'"' -f4
     }
@@ -55,21 +57,21 @@ data:
     CACERT="$SA/ca.crt"
     NS="${POD_NAMESPACE:-$(cat "$SA/namespace" 2>/dev/null || echo default)}"
 
-    HL="${HL_SERVICE:-postgres-hl}"
+    HL="${HL_SERVICE:-postgresql-hl}"
     PGPORT="${PGPORT:-5432}"
     PROMOTE_TIMEOUT="${PROMOTE_TIMEOUT:-240}"
     FENCE_TIMEOUT="${FENCE_TIMEOUT:-120}"
 
-    # Credencial de la app: alcanza para SELECT pg_is_in_recovery(). No se usa
-    # la del superusuario.
+    # App credential: enough for SELECT pg_is_in_recovery(). The superuser one
+    # is not used.
     PGUSER="${POSTGRESQL_USER:-app}"
     PGDB="${POSTGRESQL_DATABASE:-postgres}"
     export PGPASSWORD="${POSTGRESQL_PASSWORD:-}"
-    export PGCONNECT_TIMEOUT=5          # no colgarse contra un primary aislado
+    export PGCONNECT_TIMEOUT=5          # do not hang against an isolated primary
 
-    # --- API de Kubernetes -------------------------------------------------
+    # --- Kubernetes API ----------------------------------------------------
     API_CODE=""
-    api_raw() {   # api_raw <METHOD> <PATH> [args curl...] -> body; code en API_CODE
+    api_raw() {   # api_raw <METHOD> <PATH> [curl args...] -> body; code in API_CODE
       local method="$1" path="$2"; shift 2
       local tmp
       tmp="$(mktemp)"
@@ -79,7 +81,7 @@ data:
                     "${API}${path}" "$@" 2>/dev/null || echo 000)"
       cat "$tmp"; rm -f "$tmp"
     }
-    api() {   # api <METHOD> <PATH> [args...] -> body; exit 0 si 2xx
+    api() {   # api <METHOD> <PATH> [args...] -> body; exit 0 if 2xx
       local method="$1" path="$2"
       api_raw "$@"
       case "$API_CODE" in
@@ -93,10 +95,11 @@ data:
       case "$API_CODE" in 2*|404) return 0 ;; *) log "ERROR: DELETE pod/$1 -> HTTP $API_CODE"; return 1 ;; esac
     }
 
-    # Estado de un pod: "gone" (404), "uid:<uid>" (existe) o "error:<code>".
-    # Distinguir 404 de un error real es critico para el fencing.
-    # OJO: api_raw se llama en ESTE shell (redirigiendo stdout a un archivo, no
-    # con $(...)), porque dentro de una command substitution API_CODE no vuelve.
+    # Pod state: "gone" (404), "uid:<uid>" (exists) or "error:<code>".
+    # Distinguishing 404 from a real error is critical for fencing.
+    # NOTE: api_raw is called in THIS shell (redirecting stdout to a file, not
+    # with $(...)), because inside a command substitution API_CODE does not come
+    # back.
     pod_state() {
       local tmp body
       tmp="$(mktemp)"
@@ -109,7 +112,7 @@ data:
       esac
     }
 
-    # 0 si el pod existe con ese uid y sin deletionTimestamp (intacto).
+    # 0 if the pod exists with that uid and without deletionTimestamp (intact).
     pod_intact() {   # $1 = pod, $2 = uid
       local tmp body
       tmp="$(mktemp)"
@@ -121,8 +124,8 @@ data:
       return 0
     }
 
-    cm_get()     { api GET "/api/v1/namespaces/$NS/configmaps/postgres-role"; }
-    svc_selector() {   # svc_selector <service> -> pod-name seleccionado
+    cm_get()     { api GET "/api/v1/namespaces/$NS/configmaps/postgresql-role"; }
+    svc_selector() {   # svc_selector <service> -> selected pod-name
       api GET "/api/v1/namespaces/$NS/services/$1" 2>/dev/null \
         | json_compact | grep -o '"statefulset.kubernetes.io/pod-name":"[^"]*"' \
         | head -1 | cut -d'"' -f4
@@ -144,40 +147,40 @@ data:
         | sed -e 's/.*:"//' -e 's/"$//' | sort -u
     }
 
-    cm_set_primary() {   # $1 = pod, $2 = resourceVersion (opcional, para concurrencia optimista)
+    cm_set_primary() {   # $1 = pod, $2 = resourceVersion (optional, for optimistic concurrency)
       if [ -n "${2:-}" ]; then
-        jsonpatch "/api/v1/namespaces/$NS/configmaps/postgres-role" \
+        jsonpatch "/api/v1/namespaces/$NS/configmaps/postgresql-role" \
           "{\"metadata\":{\"resourceVersion\":\"$2\"},\"data\":{\"PRIMARY_POD\":\"$1\"}}"
       else
-        jsonpatch "/api/v1/namespaces/$NS/configmaps/postgres-role" \
+        jsonpatch "/api/v1/namespaces/$NS/configmaps/postgresql-role" \
           "{\"data\":{\"PRIMARY_POD\":\"$1\"}}"
       fi
     }
 
-    # Reapunta ambos Services e intenta los dos (no aborta al primer fallo).
+    # Repoints both Services and tries both (it does not abort on the first failure).
     point_services() {   # $1 = primary, $2 = replica
       local ok=0
-      jsonpatch "/api/v1/namespaces/$NS/services/postgres-rw" \
+      jsonpatch "/api/v1/namespaces/$NS/services/postgresql-rw" \
         "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$1\"}}}" || ok=1
-      jsonpatch "/api/v1/namespaces/$NS/services/postgres-ro" \
+      jsonpatch "/api/v1/namespaces/$NS/services/postgresql-ro" \
         "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$2\"}}}" || ok=1
       return "$ok"
     }
 
-    # Deja ConfigMap + ambos Services en (primary, replica) y VERIFICA que quedo
-    # asi. Si no se puede, lo declara inconsistente.
+    # Leaves ConfigMap + both Services at (primary, replica) and VERIFIES that
+    # it ended up that way. If it cannot, it declares it inconsistent.
     restore_state() {   # $1 = primary, $2 = replica
       cm_set_primary "$1" || true
       point_services "$1" "$2" || true
       local cm rw ro
       cm="$(json_field "$(cm_get 2>/dev/null)" PRIMARY_POD)"
-      rw="$(svc_selector postgres-rw)"
-      ro="$(svc_selector postgres-ro)"
+      rw="$(svc_selector postgresql-rw)"
+      ro="$(svc_selector postgresql-ro)"
       if [ "$cm" != "$1" ] || [ "$rw" != "$1" ] || [ "$ro" != "$2" ]; then
         log "CRITICO: estado inconsistente tras revertir (CM=$cm rw=$rw ro=$ro)"
         return 1
       fi
-      # El rol real de PostgreSQL tambien debe estar bien.
+      # The real PostgreSQL role must also be correct.
       if ! is_primary_ok "$1"; then
         log "CRITICO: tras revertir, $1 NO responde como primary. Intervencion requerida."
         return 1
@@ -185,43 +188,44 @@ data:
       return 0
     }
 
-    # --- Fencing verificable ----------------------------------------------
-    # Devuelve: 0 = aislado y confirmado; 1 = no aislado y SIN cambios (seguro
-    # revertir); 2 = el borrado fue aceptado pero no se pudo confirmar (NO
-    # revertir automaticamente: el ex-primary pudo recrearse como replica).
+    # --- Verifiable fencing -----------------------------------------------
+    # Returns: 0 = isolated and confirmed; 1 = not isolated and with NO changes
+    # (safe to revert); 2 = the delete was accepted but could not be confirmed
+    # (do NOT revert automatically: the ex-primary may have been recreated as a
+    # replica).
     fence_pod() {
       local pod="$1" state uid t=0
       state="$(pod_state "$pod")"
       case "$state" in
-        gone)    log "fence: $pod ya no existe"; return 0 ;;
-        error:*) log "ERROR: fence: no pude consultar $pod ($state)"; return 1 ;;
+        gone)    log "fence: $pod no longer exists"; return 0 ;;
+        error:*) log "ERROR: fence: could not query $pod ($state)"; return 1 ;;
         uid:*)   uid="${state#uid:}" ;;
       esac
-      log "fence: borrando $pod (uid=${uid:0:8})"
+      log "fence: deleting $pod (uid=${uid:0:8})"
       if ! delete_pod "$pod"; then
-        # El DELETE fallo. Puede ser que NO se haya aceptado (seguro revertir) o
-        # que se haya aceptado y se perdio la respuesta (NO seguro). Solo se
-        # revierte si el pod sigue intacto.
+        # The DELETE failed. It may NOT have been accepted (safe to revert) or
+        # it may have been accepted and the response was lost (NOT safe). It is
+        # only reverted if the pod is still intact.
         if pod_intact "$pod" "$uid"; then
-          log "ERROR: fence: no pude borrar $pod (sigue intacto; sin cambios)"
+          log "ERROR: fence: could not delete $pod (still intact; no changes)"
           return 1
         fi
-        log "ERROR: fence: el DELETE de $pod fallo y el pod no esta intacto"
+        log "ERROR: fence: the DELETE of $pod failed and the pod is not intact"
         return 2
       fi
       while [ "$t" -lt "$FENCE_TIMEOUT" ]; do
         sleep 5; t=$((t + 5))
         state="$(pod_state "$pod")"
         case "$state" in
-          gone)    log "fence: $pod desaparecio"; return 0 ;;
-          error:*) log "ERROR: fence: no pude confirmar la terminacion de $pod ($state)"
+          gone)    log "fence: $pod disappeared"; return 0 ;;
+          error:*) log "ERROR: fence: could not confirm the termination of $pod ($state)"
                    return 2 ;;
           uid:*)   if [ "${state#uid:}" != "$uid" ]; then
-                     log "fence: $pod recreado (uid nuevo)"; return 0
+                     log "fence: $pod recreated (new uid)"; return 0
                    fi ;;
         esac
       done
-      log "ERROR: fence: $pod no se termino en ${FENCE_TIMEOUT}s (borrado ya aceptado)"
+      log "ERROR: fence: $pod did not terminate in ${FENCE_TIMEOUT}s (delete already accepted)"
       return 2
     }
 
@@ -237,7 +241,7 @@ data:
     # -----------------------------------------------------------------------
     main() {
       local cm auto primary grace rv candidate
-      cm="$(cm_get)" || { log "ERROR: no pude leer postgres-role"; return 1; }
+      cm="$(cm_get)" || { log "ERROR: could not read postgresql-role"; return 1; }
 
       auto="$(json_field "$cm" AUTO_FAILOVER)"
       primary="$(json_field "$cm" PRIMARY_POD)"
@@ -245,79 +249,85 @@ data:
       STS="${primary%-*}"
 
       if [ "$auto" != "true" ]; then
-        log "auto-failover deshabilitado (AUTO_FAILOVER=$auto)"; return 0
+        log "auto-failover disabled (AUTO_FAILOVER=$auto)"; return 0
       fi
       if [ -z "$primary" ]; then
-        log "ERROR: PRIMARY_POD vacio en postgres-role"; return 1
+        log "ERROR: empty PRIMARY_POD in postgresql-role"; return 1
       fi
-      log "primary declarado: $primary"
+      log "declared primary: $primary"
 
       if is_primary_ok "$primary"; then log "primary OK"; return 0; fi
 
-      log "primary no responde; esperando hasta ${grace}s antes de declararlo caido"
+      log "primary not responding; waiting up to ${grace}s before declaring it down"
       local deadline=$(( $(date +%s) + grace ))
       while [ "$(date +%s)" -lt "$deadline" ]; do
         sleep 10
-        if is_primary_ok "$primary"; then log "primary se recupero; sin accion"; return 0; fi
+        if is_primary_ok "$primary"; then log "primary recovered; no action"; return 0; fi
       done
-      log "primary $primary declarado CAIDO"
+      log "primary $primary declared DOWN"
 
       candidate="$(pick_candidate "$primary")" || true
       if [ -z "$candidate" ]; then
-        log "ERROR: no hay replica sana; no se hace failover"; return 1
+        log "ERROR: no healthy replica; failover is not performed"; return 1
       fi
-      log "candidato elegido: $candidate"
+      log "chosen candidate: $candidate"
 
-      # Releer antes de mutar: durante la gracia pudo cambiar el rol o
-      # desactivarse el automatico (p.ej. un failover manual en curso).
-      cm="$(cm_get)" || { log "ERROR: no pude releer postgres-role"; return 1; }
+      # Re-read before mutating: during the grace period the role may have
+      # changed or automatic failover may have been disabled (e.g. a manual
+      # failover in progress).
+      cm="$(cm_get)" || { log "ERROR: could not re-read postgresql-role"; return 1; }
       rv="$(json_field "$cm" resourceVersion)"
       if [ "$(json_field "$cm" AUTO_FAILOVER)" != "true" ] || \
          [ "$(json_field "$cm" PRIMARY_POD)" != "$primary" ]; then
-        log "ABORTO: el estado cambio durante la gracia; no se toca nada"
+        log "ABORT: state changed during the grace period; nothing is touched"
         return 1
       fi
 
-      # 1) Declarar el candidato como primary (concurrencia optimista).
+      # 1) Declare the candidate as primary (optimistic concurrency).
       if ! cm_set_primary "$candidate" "$rv"; then
-        log "ERROR: no pude actualizar el ConfigMap (¿cambio el rol?); se aborta"
+        log "ERROR: could not update the ConfigMap (did the role change?); aborting"
         return 1
       fi
-      # 2) Reapuntar los Services.
+      # 2) Repoint the Services.
       if ! point_services "$candidate" "$primary"; then
-        log "ERROR: no pude reapuntar los Services; revirtiendo todo"
+        log "ERROR: could not repoint the Services; reverting everything"
         restore_state "$primary" "$candidate" || \
-          log "CRITICO: la reversion no quedo consistente; intervencion requerida"
+          log "CRITICAL: the revert did not end up consistent; intervention required"
         return 1
       fi
-      # 3) Fencing del ex-primary.
+      # 3) Fencing of the ex-primary.
       fence_pod "$primary"; local frc=$?
       if [ "$frc" -eq 1 ]; then
-        log "ERROR: no se pudo aislar $primary (sin cambios); REVIRTIENDO"
+        log "ERROR: could not isolate $primary (no changes); REVERTING"
         restore_state "$primary" "$candidate" || \
-          log "CRITICO: la reversion no quedo consistente; intervencion requerida"
+          log "CRITICAL: the revert did not end up consistent; intervention required"
         return 1
       elif [ "$frc" -eq 2 ]; then
-        log "CRITICO: el borrado de $primary fue aceptado pero NO se pudo confirmar su terminacion."
-        log "CRITICO: NO se revierte automaticamente (el pod pudo recrearse como replica). Intervencion requerida."
+        log "CRITICAL: the delete of $primary was accepted but its termination could NOT be confirmed."
+        log "CRITICAL: it is NOT reverted automatically (the pod may have been recreated as a replica). Intervention required."
         return 1
       fi
-      # 4) Promover el candidato.
-      log "promoviendo $candidate (recreando el pod)"
-      delete_pod "$candidate" || log "ADVERTENCIA: no pude borrar $candidate (sigo)"
+      # 4) Promote the candidate.
+      log "promoting $candidate (recreating the pod)"
+      delete_pod "$candidate" || log "WARNING: could not delete $candidate (continuing)"
 
-      # 5) Confirmar. Si no promueve NO se revierte: el ex-primary ya esta
-      #    aislado y volver a declararlo primary seria peor.
+      # 5) Confirm. If it does not promote, it is NOT reverted: the ex-primary
+      #    is already isolated and declaring it primary again would be worse.
       local t=0
       while [ "$t" -lt "$PROMOTE_TIMEOUT" ]; do
         sleep 10; t=$((t + 10))
         if is_primary_ok "$candidate"; then
-          log "FAILOVER OK: primary=${candidate} (ex-primary ${primary} se re-siembra solo)"
+          log "FAILOVER OK: primary=${candidate} (ex-primary ${primary} re-seeds itself)"
+          if [ "${candidate##*-}" -ge 2 ]; then
+            log "WARNING: the new primary is ${candidate} (ordinal >= 2)."
+            log "WARNING: if an HPA owns replicas, scaling down can remove that pod."
+            log "WARNING: fail back to postgresql-0 before letting the fleet shrink."
+          fi
           return 0
         fi
       done
-      log "CRITICO: $candidate no promovio en ${PROMOTE_TIMEOUT}s."
-      log "CRITICO: el ConfigMap ya declara primary=${candidate}. NO se revierte. Requiere intervencion."
+      log "CRITICAL: $candidate did not promote in ${PROMOTE_TIMEOUT}s."
+      log "CRITICAL: the ConfigMap already declares primary=${candidate}. It is NOT reverted. Intervention required."
       return 1
     }
 

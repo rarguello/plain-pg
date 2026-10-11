@@ -1,30 +1,30 @@
 ###############################################################################
 # configmap-backup-scripts.yaml
 #
-# Backups logicos con pg_dump. Es lo mas simple que sirve:
-#   - pg_dumpall --globals-only  -> roles/usuarios
-#   - pg_dump -Fc <basededatos>  -> datos de la app (formato custom, restaurable)
-#   - retencion por antiguedad
-#   - se corre contra el Service postgres-rw, asi que sigue al primary actual
+# Logical backups with pg_dump. It is the simplest thing that works:
+#   - pg_dumpall --globals-only  -> roles/users
+#   - pg_dump -Fc <database>     -> application data (custom format, restorable)
+#   - retention by age
+#   - it runs against the postgresql-rw Service, so it follows the current primary
 #
-# NO es PITR (no hay archivado de WAL). Ver docs/06-backups.md.
+# It is NOT PITR (there is no WAL archiving). See docs/backups.md.
 ###############################################################################
 
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: postgres-backup-scripts
+  name: postgresql-backup-scripts
   labels:
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
-    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/instance: postgresql
+    app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: backup
 data:
   backup.sh: |
     #!/bin/bash
     set -euo pipefail
 
-    HOST="${BACKUP_HOST:-postgres-rw}"
+    HOST="${BACKUP_HOST:-postgresql-rw}"
     PORT="${PGPORT:-5432}"
     ADMIN_USER="${BACKUP_ADMIN_USER:-postgres}"
     APP_USER="${POSTGRESQL_USER:-app}"
@@ -36,60 +36,60 @@ data:
     log() { echo "[pg-backup] $*"; }
     mkdir -p "$DEST"
 
-    log "origen: ${HOST}:${PORT}  destino: ${DEST}  retencion: ${RETENTION_DAYS}d"
+    log "source: ${HOST}:${PORT}  destination: ${DEST}  retention: ${RETENTION_DAYS}d"
 
-    # 1. Roles y usuarios globales
+    # 1. Global roles and users
     PGPASSWORD="${POSTGRESQL_ADMIN_PASSWORD:-}" \
       pg_dumpall -h "$HOST" -p "$PORT" -U "$ADMIN_USER" --globals-only \
       > "${DEST}/${TS}-globals.sql"
     log "globals -> ${TS}-globals.sql"
 
-    # 2. Base de datos de la aplicacion (formato custom)
+    # 2. Application database (custom format)
     PGPASSWORD="${POSTGRESQL_PASSWORD:-}" \
       pg_dump -h "$HOST" -p "$PORT" -U "$APP_USER" -d "$APP_DB" -Fc \
       -f "${DEST}/${TS}-${APP_DB}.dump"
     log "database -> ${TS}-${APP_DB}.dump"
 
-    # 3. Verificacion: el dump debe poder listarse
+    # 3. Verification: the dump must be listable
     pg_restore -l "${DEST}/${TS}-${APP_DB}.dump" >/dev/null
-    log "backup verificado (pg_restore -l OK)"
+    log "backup verified (pg_restore -l OK)"
 
-    # 4. Retencion
-    log "borrando backups con mas de ${RETENTION_DAYS} dias"
+    # 4. Retention
+    log "deleting backups older than ${RETENTION_DAYS} days"
     find "$DEST" -maxdepth 1 -type f \( -name '*.dump' -o -name '*-globals.sql' \) \
       -mtime +"${RETENTION_DAYS}" -print -delete || true
 
-    log "contenido actual de ${DEST}:"
+    log "current contents of ${DEST}:"
     ls -lh "$DEST" | sed 's/^/  /'
     log "OK"
 
   restore.sh: |
     #!/bin/bash
-    # Uso: restore.sh <archivo.dump> [basededatos_destino]
+    # Usage: restore.sh <file.dump> [target_database]
     #
-    # Restaura SIEMPRE en una base nueva: no pisa bases existentes y rechaza la
-    # base de la aplicacion. Usa --exit-on-error: si algo falla, la base creada
-    # se elimina.
+    # Always restores into a NEW database: it does not overwrite existing
+    # databases and rejects the application database. Uses --exit-on-error: if
+    # anything fails, the created database is dropped.
     set -euo pipefail
 
-    DUMP="${1:?uso: restore.sh <archivo.dump> [basededatos]}"
+    DUMP="${1:?usage: restore.sh <file.dump> [database]}"
     TARGET="${2:-restore_$(date -u +%Y%m%d_%H%M%S)}"
-    HOST="${BACKUP_HOST:-postgres-rw}"
+    HOST="${BACKUP_HOST:-postgresql-rw}"
     PORT="${PGPORT:-5432}"
     ADMIN_USER="${BACKUP_ADMIN_USER:-postgres}"
     APP_DB="${POSTGRESQL_DATABASE:-appdb}"
 
     log() { echo "[pg-restore] $*"; }
-    [ -f "$DUMP" ] || { log "ERROR: no existe $DUMP"; exit 1; }
+    [ -f "$DUMP" ] || { log "ERROR: $DUMP does not exist"; exit 1; }
 
-    # El nombre se usa como identificador SQL: se valida estrictamente.
+    # The name is used as a SQL identifier: it is validated strictly.
     case "$TARGET" in
       *[!A-Za-z0-9_]*|[0-9]*)
-        log "ERROR: nombre de base invalido: '$TARGET' (solo [A-Za-z_][A-Za-z0-9_]*)"
+        log "ERROR: invalid database name: '$TARGET' (only [A-Za-z_][A-Za-z0-9_]*)"
         exit 1 ;;
     esac
     if [ "$TARGET" = "$APP_DB" ]; then
-      log "ERROR: el destino no puede ser la base de la aplicacion ($APP_DB)"; exit 1
+      log "ERROR: the target cannot be the application database ($APP_DB)"; exit 1
     fi
 
     export PGPASSWORD="${POSTGRESQL_ADMIN_PASSWORD:-}"
@@ -97,24 +97,24 @@ data:
     EXISTS="$(psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres -tAc \
               "SELECT 1 FROM pg_database WHERE datname='${TARGET}'")"
     if [ "$EXISTS" = "1" ]; then
-      log "ERROR: la base ${TARGET} ya existe. Elegi otro nombre (este script no pisa bases)."
+      log "ERROR: database ${TARGET} already exists. Choose another name (this script does not overwrite databases)."
       exit 1
     fi
 
-    log "creando base destino ${TARGET}"
+    log "creating target database ${TARGET}"
     psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres -v ON_ERROR_STOP=1 \
       -c "CREATE DATABASE \"${TARGET}\";"
 
-    log "restaurando ${DUMP} en ${TARGET}"
+    log "restoring ${DUMP} into ${TARGET}"
     if ! pg_restore -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d "$TARGET" \
            --no-owner --no-privileges --exit-on-error "$DUMP"; then
-      log "ERROR: el restore fallo; se elimina la base incompleta ${TARGET}"
+      log "ERROR: restore failed; dropping the incomplete database ${TARGET}"
       psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres \
         -c "DROP DATABASE IF EXISTS \"${TARGET}\";" || true
       exit 1
     fi
 
-    log "tablas restauradas:"
+    log "restored tables:"
     psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d "$TARGET" -P pager=off \
       -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY 1;"
-    log "OK -> base ${TARGET}"
+    log "OK -> database ${TARGET}"

@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
 #
-# generate-secret.sh -- crea/actualiza el Secret `postgres-credentials`.
+# generate-secret.sh -- creates/updates the Secret `postgresql-credentials`.
 #
-# Las credenciales NUNCA se versionan: se generan aleatoriamente y se guardan
-# en secrets/postgres-credentials.env (ignorado por git). Si ese archivo ya
-# existe, se reutilizan las credenciales para no romper un despliegue en curso.
+# Credentials are NEVER versioned: they are generated randomly and stored in
+# secrets/postgresql-credentials.env (git-ignored). If that file already exists,
+# the credentials are reused so as not to break a deployment in progress.
 #
-# Variables de entorno opcionales: NAMESPACE, POSTGRESQL_USER,
+# Optional environment variables: NAMESPACE, POSTGRESQL_USER,
 # POSTGRESQL_DATABASE, POSTGRESQL_MASTER_USER.
 #
 set -euo pipefail
 
-NS="${NAMESPACE:-pg-ha-lab}"
+NS="${NAMESPACE:-postgresql-lab}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$ROOT_DIR/secrets"
-SECRET_FILE="$OUT_DIR/postgres-credentials.env"
+SECRET_FILE="$OUT_DIR/postgresql-credentials.env"
 
 POSTGRESQL_USER="${POSTGRESQL_USER:-app}"
 POSTGRESQL_DATABASE="${POSTGRESQL_DATABASE:-appdb}"
 POSTGRESQL_MASTER_USER="${POSTGRESQL_MASTER_USER:-replicator}"
 
-# Password alfanumerico (evita problemas de comillas en primary_conninfo).
+# Alphanumeric password (avoids quoting problems in primary_conninfo).
 gen() { head -c 4096 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | cut -c1-"${1:-24}"; }
 
 mkdir -p "$OUT_DIR"
 
 if [ -f "$SECRET_FILE" ]; then
-  echo "==> Reutilizando credenciales existentes en $SECRET_FILE"
+  echo "==> Reusing existing credentials in $SECRET_FILE"
   # shellcheck disable=SC1090
   source "$SECRET_FILE"
 else
-  echo "==> Generando credenciales nuevas en $SECRET_FILE"
+  echo "==> Generating new credentials in $SECRET_FILE"
   POSTGRESQL_PASSWORD="$(gen 24)"
   POSTGRESQL_ADMIN_PASSWORD="$(gen 24)"
   POSTGRESQL_MASTER_PASSWORD="$(gen 24)"
@@ -43,12 +43,12 @@ EOF
 fi
 
 if ! oc get namespace "$NS" >/dev/null 2>&1; then
-  echo "==> El namespace $NS no existe todavia; se creara al aplicar los manifiestos." >&2
-  echo "    (crealo con: oc apply -k manifests/overlays/lab)" >&2
+  echo "==> Namespace $NS does not exist yet; it will be created when the manifests are applied." >&2
+  echo "    (create it with: oc apply -k manifests/overlays/lab)" >&2
   exit 1
 fi
 
-oc -n "$NS" create secret generic postgres-credentials \
+oc -n "$NS" create secret generic postgresql-credentials \
   --from-literal=POSTGRESQL_USER="$POSTGRESQL_USER" \
   --from-literal=POSTGRESQL_PASSWORD="$POSTGRESQL_PASSWORD" \
   --from-literal=POSTGRESQL_DATABASE="$POSTGRESQL_DATABASE" \
@@ -57,6 +57,6 @@ oc -n "$NS" create secret generic postgres-credentials \
   --from-literal=POSTGRESQL_MASTER_PASSWORD="$POSTGRESQL_MASTER_PASSWORD" \
   --dry-run=client -o yaml | oc -n "$NS" apply -f - >/dev/null
 
-echo "==> Secret postgres-credentials aplicado en $NS"
-echo "    usuario app:  $POSTGRESQL_USER / db: $POSTGRESQL_DATABASE"
-echo "    usuario repl: $POSTGRESQL_MASTER_USER"
+echo "==> Secret postgresql-credentials applied in $NS"
+echo "    app user:  $POSTGRESQL_USER / db: $POSTGRESQL_DATABASE"
+echo "    repl user: $POSTGRESQL_MASTER_USER"

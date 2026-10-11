@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 #
-# deploy.sh -- despliega pg-ha de forma idempotente.
+# deploy.sh -- deploys plain-pg idempotently.
 #
-# Uso:
-#   ./scripts/deploy.sh                          # overlay completo (con failover automatico)
-#   ./scripts/deploy.sh manifests/overlays/lab-manual   # solo failover manual
-#   ./scripts/deploy.sh --reset-role             # vuelve al estado inicial
-#                                                # (PRIMARY_POD=postgres-0)
+# Usage:
+#   ./scripts/deploy.sh                          # full overlay (with automatic failover)
+#   ./scripts/deploy.sh manifests/overlays/lab-manual   # manual failover only
+#   ./scripts/deploy.sh --reset-role             # returns to the initial state
+#                                                # (PRIMARY_POD=postgresql-0)
 #
-# IMPORTANTE: por defecto PRESERVA el estado operativo de failover SIN crear una
-# ventana inconsistente. Si el primary actual no es postgres-0, el manifiesto se
-# renderiza y se reescribe el rol/selectores ANTES de aplicarlo (necesita
-# python3 + pyyaml). Asi `oc apply` nunca llega a poner el rol viejo.
+# IMPORTANT: by default it PRESERVES the operational failover state WITHOUT
+# creating an inconsistent window. If the current primary is not postgresql-0, the
+# manifest is rendered and the role/selectors are rewritten BEFORE applying it
+# (needs python3 + pyyaml). Thus `oc apply` never gets to set the old role.
 #
-# `--reset-role` solo se permite si el primary actual YA es postgres-0; si hubo
-# un failover, primero hay que hacer el failback:
-#   ./scripts/failover-manual.sh postgres-0
+# `--reset-role` is only allowed if the current primary is ALREADY postgresql-0;
+# if there was a failover, the failback must be done first:
+#   ./scripts/failover-manual.sh postgresql-0
 #
 set -euo pipefail
 
@@ -34,37 +34,37 @@ for arg in "$@"; do
   esac
 done
 
-# Lee el estado operativo actual en RP/RRW/RRO.
+# Reads the current operational state into RP/RRW/RRO.
 read_state() {
-  RP="$(oc -n "$NS" get cm postgres-role -o jsonpath='{.data.PRIMARY_POD}' 2>/dev/null || true)"
-  RRW="$(oc -n "$NS" get svc postgres-rw -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null || true)"
-  RRO="$(oc -n "$NS" get svc postgres-ro -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null || true)"
+  RP="$(oc -n "$NS" get cm postgresql-role -o jsonpath='{.data.PRIMARY_POD}' 2>/dev/null || true)"
+  RRW="$(oc -n "$NS" get svc postgresql-rw -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null || true)"
+  RRO="$(oc -n "$NS" get svc postgresql-ro -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null || true)"
 }
 
-echo "==> Render previo (kustomize)"
+echo "==> Pre-render (kustomize)"
 oc kustomize "$OVERLAY" >/dev/null
 
 read_state
 CUR_PRIMARY="$RP"; CUR_RW="$RRW"; CUR_RO="$RRO"
 
 if [ -n "$CUR_PRIMARY" ] && { [ -z "$CUR_RW" ] || [ -z "$CUR_RO" ]; }; then
-  echo "ERROR: no pude leer los selectores de los Services; abortando." >&2
+  echo "ERROR: could not read the Service selectors; aborting." >&2
   exit 1
 fi
 
-if [ "$RESET_ROLE" = "1" ] && [ -n "$CUR_PRIMARY" ] && [ "$CUR_PRIMARY" != "postgres-0" ]; then
-  echo "ERROR: --reset-role devolveria el rol a postgres-0, pero el primary actual es $CUR_PRIMARY." >&2
-  echo "       Hace primero el failback: ./scripts/failover-manual.sh postgres-0" >&2
+if [ "$RESET_ROLE" = "1" ] && [ -n "$CUR_PRIMARY" ] && [ "$CUR_PRIMARY" != "postgresql-0" ]; then
+  echo "ERROR: --reset-role would return the role to postgresql-0, but the current primary is $CUR_PRIMARY." >&2
+  echo "       Do the failback first: ./scripts/failover-manual.sh postgresql-0" >&2
   exit 1
 fi
 
-if [ "$RESET_ROLE" != "1" ] && [ -n "$CUR_PRIMARY" ] && [ "$CUR_PRIMARY" != "postgres-0" ]; then
+if [ "$RESET_ROLE" != "1" ] && [ -n "$CUR_PRIMARY" ] && [ "$CUR_PRIMARY" != "postgresql-0" ]; then
   if ! python3 -c 'import yaml' 2>/dev/null; then
-    echo "ERROR: para reaplicar despues de un failover se necesita python3 + pyyaml" >&2
-    echo "       (o hacer el failback primero con ./scripts/failover-manual.sh postgres-0)" >&2
+    echo "ERROR: to re-apply after a failover, python3 + pyyaml are needed" >&2
+    echo "       (or do the failback first with ./scripts/failover-manual.sh postgresql-0)" >&2
     exit 1
   fi
-  echo "==> Preservando el estado de failover (primary=$CUR_PRIMARY, rw=$CUR_RW, ro=$CUR_RO)"
+  echo "==> Preserving the failover state (primary=$CUR_PRIMARY, rw=$CUR_RW, ro=$CUR_RO)"
   TMP="$(mktemp)"
   oc kustomize "$OVERLAY" > "$TMP"
   python3 - "$TMP" "$CUR_PRIMARY" "$CUR_RW" "$CUR_RO" <<'PY'
@@ -76,10 +76,10 @@ docs = [d for d in yaml.safe_load_all(open(path)) if d]
 for doc in docs:
     kind = doc.get("kind")
     name = doc.get("metadata", {}).get("name")
-    if kind == "ConfigMap" and name == "postgres-role":
+    if kind == "ConfigMap" and name == "postgresql-role":
         doc.setdefault("data", {})["PRIMARY_POD"] = primary
-    elif kind == "Service" and name in ("postgres-rw", "postgres-ro"):
-        want = rw if name == "postgres-rw" else ro
+    elif kind == "Service" and name in ("postgresql-rw", "postgresql-ro"):
+        want = rw if name == "postgresql-rw" else ro
         if want:
             doc.setdefault("spec", {}).setdefault("selector", {})[
                 "statefulset.kubernetes.io/pod-name"
@@ -89,48 +89,48 @@ with open(path, "w") as fh:
                        width=10**9)
 PY
 
-  # Releer justo antes de aplicar: si un failover ocurrio mientras se preparaba
-  # el render, se aborta en vez de pisarlo.
+  # Re-read right before applying: if a failover happened while the render was
+  # being prepared, it aborts instead of overwriting it.
   read_state
   if [ "$RP" != "$CUR_PRIMARY" ] || [ "$RRW" != "$CUR_RW" ] || [ "$RRO" != "$CUR_RO" ]; then
-    echo "ERROR: el estado de failover cambio mientras se preparaba el deploy; reintentar." >&2
+    echo "ERROR: the failover state changed while the deploy was being prepared; retry." >&2
     rm -f "$TMP"
     exit 1
   fi
 
-  echo "==> Aplicando $OVERLAY (con el rol preservado)"
+  echo "==> Applying $OVERLAY (with the role preserved)"
   oc apply -f "$TMP"
   rm -f "$TMP"
 else
-  echo "==> Aplicando $OVERLAY"
+  echo "==> Applying $OVERLAY"
   oc apply -k "$OVERLAY"
 fi
 
-# Verificacion posterior: si un failover ocurrio durante el apply, avisar
-# fuerte (no se puede evitar del todo sin un bloqueo compartido: no corras
-# deploy.sh y un failover al mismo tiempo).
+# Post-check: if a failover happened during the apply, warn loudly (it cannot
+# be fully avoided without a shared lock: do not run deploy.sh and a failover at
+# the same time).
 if [ -n "$CUR_PRIMARY" ]; then
   read_state
   if [ "$RP" != "$CUR_PRIMARY" ] || [ "$RRW" != "$CUR_RW" ] || [ "$RRO" != "$CUR_RO" ]; then
-    echo "ADVERTENCIA: el estado de failover cambio durante el deploy (¿failover concurrente?)" >&2
-    echo "  esperado: CM=$CUR_PRIMARY rw=$CUR_RW ro=$CUR_RO" >&2
-    echo "  ahora:    CM=$RP rw=$RRW ro=$RRO" >&2
+    echo "WARNING: the failover state changed during the deploy (concurrent failover?)" >&2
+    echo "  expected: CM=$CUR_PRIMARY rw=$CUR_RW ro=$CUR_RO" >&2
+    echo "  now:      CM=$RP rw=$RRW ro=$RRO" >&2
   fi
 fi
 
-echo "==> Credenciales"
+echo "==> Credentials"
 NAMESPACE="$NS" "$ROOT_DIR/scripts/generate-secret.sh"
 
-echo "==> Esperando a que los pods de PostgreSQL esten Ready"
-echo "    (la replica hace pg_basebackup, puede tardar)"
+echo "==> Waiting for the PostgreSQL pods to be Ready"
+echo "    (the replica runs pg_basebackup, it may take a while)"
 if ! wait_db_ready; then
-  echo "ERROR: los pods no quedaron Ready a tiempo" >&2
+  echo "ERROR: the pods did not become Ready in time" >&2
   oc -n "$NS" get pods,pvc >&2
   exit 1
 fi
 
 echo
-echo "==> Estado"
+echo "==> Status"
 oc -n "$NS" get pods,pvc,svc
 echo
-echo "Listo. Verifica la replicacion con:  ./scripts/verify-replication.sh"
+echo "Done. Verify replication with:  ./scripts/verify-replication.sh"
