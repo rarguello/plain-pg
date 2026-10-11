@@ -8,7 +8,8 @@
 
 NS="${NAMESPACE:-pg-ha-lab}"
 
-# Ruta PGDATA real de la imagen sclorg.
+# Ruta PGDATA real de la imagen sclorg (la usan los tests).
+# shellcheck disable=SC2034
 PGDATA_PATH="/var/lib/pgsql/data/userdata"
 
 cm_value()     { oc -n "$NS" get cm postgres-role -o jsonpath="{.data.$1}"; }
@@ -34,7 +35,9 @@ load_credentials() {
   APP_DB="$(secret_value POSTGRESQL_DATABASE)"
   APP_PASSWORD="$(secret_value POSTGRESQL_PASSWORD)"
   ADMIN_PASSWORD="$(secret_value POSTGRESQL_ADMIN_PASSWORD)"
+  # shellcheck disable=SC2034
   REPL_USER="$(secret_value POSTGRESQL_MASTER_USER)"
+  # shellcheck disable=SC2034
   REPL_PASSWORD="$(secret_value POSTGRESQL_MASTER_PASSWORD)"
 }
 

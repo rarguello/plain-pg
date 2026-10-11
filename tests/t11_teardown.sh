@@ -14,6 +14,7 @@ check "no quedan PVCs de la BD" \
   bash -c "! oc -n $NS get pvc -l app.kubernetes.io/instance=postgres 2>/dev/null | grep -q pgdata-"
 check "no queda el Secret" \
   bash -c "! oc -n $NS get secret postgres-credentials >/dev/null 2>&1"
+check "el teardown normal NO borra el namespace" oc get namespace "$NS"
 
 echo "  (re-despliegue desde cero)"
 if NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" >/dev/null 2>&1; then

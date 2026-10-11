@@ -1,0 +1,119 @@
+###############################################################################
+# configmap-backup-scripts.yaml
+#
+# Backups logicos con pg_dump. Es lo mas simple que sirve:
+#   - pg_dumpall --globals-only  -> roles/usuarios
+#   - pg_dump -Fc <basededatos>  -> datos de la app (formato custom, restaurable)
+#   - retencion por antiguedad
+#   - se corre contra el Service postgres-rw, asi que sigue al primary actual
+#
+# NO es PITR (no hay archivado de WAL). Ver docs/06-backups.md.
+###############################################################################
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-backup-scripts
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: postgres
+    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/component: backup
+data:
+  backup.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    HOST="${BACKUP_HOST:-postgres-rw}"
+    PORT="${PGPORT:-5432}"
+    ADMIN_USER="${BACKUP_ADMIN_USER:-postgres}"
+    APP_USER="${POSTGRESQL_USER:-app}"
+    APP_DB="${POSTGRESQL_DATABASE:-appdb}"
+    DEST="${BACKUP_DIR:-/backups}"
+    RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-7}"
+    TS="$(date -u +%Y%m%d-%H%M%S)"
+
+    log() { echo "[pg-backup] $*"; }
+    mkdir -p "$DEST"
+
+    log "origen: ${HOST}:${PORT}  destino: ${DEST}  retencion: ${RETENTION_DAYS}d"
+
+    # 1. Roles y usuarios globales
+    PGPASSWORD="${POSTGRESQL_ADMIN_PASSWORD:-}" \
+      pg_dumpall -h "$HOST" -p "$PORT" -U "$ADMIN_USER" --globals-only \
+      > "${DEST}/${TS}-globals.sql"
+    log "globals -> ${TS}-globals.sql"
+
+    # 2. Base de datos de la aplicacion (formato custom)
+    PGPASSWORD="${POSTGRESQL_PASSWORD:-}" \
+      pg_dump -h "$HOST" -p "$PORT" -U "$APP_USER" -d "$APP_DB" -Fc \
+      -f "${DEST}/${TS}-${APP_DB}.dump"
+    log "database -> ${TS}-${APP_DB}.dump"
+
+    # 3. Verificacion: el dump debe poder listarse
+    pg_restore -l "${DEST}/${TS}-${APP_DB}.dump" >/dev/null
+    log "backup verificado (pg_restore -l OK)"
+
+    # 4. Retencion
+    log "borrando backups con mas de ${RETENTION_DAYS} dias"
+    find "$DEST" -maxdepth 1 -type f \( -name '*.dump' -o -name '*-globals.sql' \) \
+      -mtime +"${RETENTION_DAYS}" -print -delete || true
+
+    log "contenido actual de ${DEST}:"
+    ls -lh "$DEST" | sed 's/^/  /'
+    log "OK"
+
+  restore.sh: |
+    #!/bin/bash
+    # Uso: restore.sh <archivo.dump> [basededatos_destino]
+    #
+    # Restaura en una base NUEVA. No pisa bases existentes salvo que se pase
+    # FORCE_DROP=1, y nunca acepta como destino la base de la aplicacion.
+    # Usa --exit-on-error: si algo falla, la base creada se elimina.
+    set -euo pipefail
+
+    DUMP="${1:?uso: restore.sh <archivo.dump> [basededatos]}"
+    TARGET="${2:-restore_$(date -u +%Y%m%d_%H%M%S)}"
+    HOST="${BACKUP_HOST:-postgres-rw}"
+    PORT="${PGPORT:-5432}"
+    ADMIN_USER="${BACKUP_ADMIN_USER:-postgres}"
+    APP_DB="${POSTGRESQL_DATABASE:-appdb}"
+    FORCE_DROP="${FORCE_DROP:-0}"
+
+    log() { echo "[pg-restore] $*"; }
+    [ -f "$DUMP" ] || { log "ERROR: no existe $DUMP"; exit 1; }
+    if [ "$TARGET" = "$APP_DB" ]; then
+      log "ERROR: el destino no puede ser la base de la aplicacion ($APP_DB)"; exit 1
+    fi
+
+    export PGPASSWORD="${POSTGRESQL_ADMIN_PASSWORD:-}"
+
+    EXISTS="$(psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres -tAc \
+              "SELECT 1 FROM pg_database WHERE datname='${TARGET}'")"
+    if [ "$EXISTS" = "1" ]; then
+      if [ "$FORCE_DROP" != "1" ]; then
+        log "ERROR: la base ${TARGET} ya existe. Usa otro nombre o FORCE_DROP=1."
+        exit 1
+      fi
+      log "ADVERTENCIA: borrando la base existente ${TARGET} (FORCE_DROP=1)"
+      psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres -v ON_ERROR_STOP=1 \
+        -c "DROP DATABASE \"${TARGET}\";"
+    fi
+
+    log "creando base destino ${TARGET}"
+    psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres -v ON_ERROR_STOP=1 \
+      -c "CREATE DATABASE \"${TARGET}\";"
+
+    log "restaurando ${DUMP} en ${TARGET}"
+    if ! pg_restore -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d "$TARGET" \
+           --no-owner --no-privileges --exit-on-error "$DUMP"; then
+      log "ERROR: el restore fallo; se elimina la base incompleta ${TARGET}"
+      psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres \
+        -c "DROP DATABASE IF EXISTS \"${TARGET}\";" || true
+      exit 1
+    fi
+
+    log "tablas restauradas:"
+    psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d "$TARGET" -P pager=off \
+      -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY 1;"
+    log "OK -> base ${TARGET}"

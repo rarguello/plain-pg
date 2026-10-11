@@ -29,9 +29,14 @@ spec:
   replicas: 2
   serviceName: postgres-hl
 
-  # OrderedReady: postgres-0 arranca y queda Ready ANTES de que postgres-1
-  # intente hacer pg_basebackup. Critico para el arranque de la replica.
-  podManagementPolicy: OrderedReady
+  # Parallel: los pods se crean sin depender del orden. Necesario porque,
+  # despues de un failover, el primary puede ser postgres-1: si se recrean los
+  # dos pods a la vez, con OrderedReady el StatefulSet esperaria a que
+  # postgres-0 (ahora replica) esté Ready antes de crear a postgres-1, y
+  # postgres-0 espera a su primary -> deadlock. Cada replica espera al primary
+  # explicitamente en el entrypoint (wait_for_primary), asi que no hace falta
+  # el orden.
+  podManagementPolicy: Parallel
 
   # OnDelete: cambiar el template NO reinicia pods automaticamente. En una BD
   # eso es lo correcto (nada de restarts sorpresa por un `oc apply`). Para
@@ -111,7 +116,7 @@ spec:
             - name: ROLE_FILE
               value: /etc/pg-ha/role/PRIMARY_POD
             - name: WAIT_PRIMARY_RETRIES
-              value: "120"
+              value: "180"
 
           resources:
             requests:

@@ -1,26 +1,26 @@
 ###############################################################################
 # configmap-controller.yaml
 #
-# Script del failover automatico (lo ejecuta el CronJob). NO es un operador:
-# es un script que corre cada minuto y, si el primary declarado no responde,
-# promueve una replica sana cambiando el ConfigMap de rol y reapuntando los
-# Services.
+# Controlador de failover automatico (NO es un operador: es un script en un
+# CronJob).
 #
-# Secuencia (con rollback si la promocion falla):
-#   1. Si el primary responde -> nada que hacer.
-#   2. Si no responde, esperar FAILOVER_GRACE_SECONDS (por si es transitorio).
-#   3. Elegir una replica sana (pg_is_in_recovery() = t).
-#   4. Apuntar PRIMARY_POD y los Services al candidato.
-#   5. Borrar el pod del candidato -> al arrancar se promueve solo.
-#   6. Confirmar que el candidato es primary; si no, ROLLBACK.
-#   7. Borrar el pod del ex-primary -> se re-siembra como replica.
+# Secuencia:
+#   1. Lee el ConfigMap postgres-role FRESCO desde la API (no de variables de
+#      entorno capturadas al crear el pod) y decide si corresponde actuar.
+#   2. Si el primary declarado responde, no hace nada.
+#   3. Si no responde, espera FAILOVER_GRACE_SECONDS (por si es transitorio).
+#   4. Elige una replica sana (pg_is_in_recovery() = t).
+#   5. Declara el candidato como primary (ConfigMap) y reapunta los Services.
+#   6. FENCING verificable del ex-primary: lo borra y espera a que el objeto
+#      del pod desaparezca o cambie de UID. Si no se puede confirmar, REVIERTE
+#      todo y no promueve (asi no queda split-brain).
+#   7. Promueve el candidato (recrea el pod). Confirma. Si no promueve, NO
+#      revierte al ex-primary (ya esta aislado): deja el estado declarado en el
+#      candidato y falla fuerte para que intervenga una persona.
 #
-# LIMITACIONES (leer docs/05-failover-automatico.md):
-#   - No hay fencing de red real: si el ex-primary solo estaba "pausado" puede
-#     volver. Mitigado porque el rol lo decide el ConfigMap y el pod se
-#     re-siembra al arrancar.
-#   - Replicacion asincrona => se puede perder la ultima transaccion no
-#     replicada. Para failover sin perdida usar replicacion sincrona.
+# LIMITACION de fencing (leer docs/failover.md): si el nodo del ex-primary
+# queda particionado del API server, el objeto del pod puede desaparecer al
+# vencer el grace period aunque el contenedor siga vivo. No hay STONITH real.
 ###############################################################################
 
 apiVersion: v1
@@ -28,8 +28,8 @@ kind: ConfigMap
 metadata:
   name: postgres-failover-scripts
   labels:
-    app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
+    app.kubernetes.io/name: pg-failover
+    app.kubernetes.io/instance: pg-ha
     app.kubernetes.io/part-of: pg-ha
     app.kubernetes.io/component: failover
 data:
@@ -43,105 +43,178 @@ data:
     API="https://kubernetes.default.svc"
     TOKEN="$(cat "$SA/token")"
     CACERT="$SA/ca.crt"
-
     NS="${POD_NAMESPACE:-$(cat "$SA/namespace" 2>/dev/null || echo default)}"
-    PRIMARY_POD="${PRIMARY_POD:-}"
-    AUTO_FAILOVER="${AUTO_FAILOVER:-false}"
-    GRACE="${FAILOVER_GRACE_SECONDS:-120}"
+
     HL="${HL_SERVICE:-postgres-hl}"
     PGPORT="${PGPORT:-5432}"
     PROMOTE_TIMEOUT="${PROMOTE_TIMEOUT:-240}"
+    FENCE_TIMEOUT="${FENCE_TIMEOUT:-120}"
 
-    STS="${PRIMARY_POD%-*}"
+    # Credencial de la app: alcanza para SELECT pg_is_in_recovery(). No se usa
+    # la del superusuario.
+    PGUSER="${POSTGRESQL_USER:-app}"
+    PGDB="${POSTGRESQL_DATABASE:-postgres}"
+    export PGPASSWORD="${POSTGRESQL_PASSWORD:-}"
+    export PGCONNECT_TIMEOUT=5          # no colgarse contra un primary aislado
 
-    api() {
+    # --- API de Kubernetes -------------------------------------------------
+    api() {   # api <METHOD> <PATH> [args de curl...]  -> body; exit 0 si 2xx
       local method="$1" path="$2"; shift 2
-      curl -sS --cacert "$CACERT" -H "Authorization: Bearer $TOKEN" \
-           -X "$method" "${API}${path}" "$@"
+      local tmp code
+      tmp="$(mktemp)"
+      code="$(curl -sS --connect-timeout 5 --max-time 30 \
+                --cacert "$CACERT" -H "Authorization: Bearer $TOKEN" \
+                -X "$method" -o "$tmp" -w '%{http_code}' \
+                "${API}${path}" "$@" 2>/dev/null || echo 000)"
+      cat "$tmp"; rm -f "$tmp"
+      case "$code" in
+        2*) return 0 ;;
+        *)  log "ERROR: API $method $path -> HTTP $code"; return 1 ;;
+      esac
     }
     jsonpatch() { api PATCH "$1" -H 'Content-Type: application/merge-patch+json' -d "$2" >/dev/null; }
-    pod_fqdn() { echo "$1.${HL}.${NS}.svc.cluster.local"; }
+    delete_pod() {
+      local code tmp
+      tmp="$(mktemp)"
+      code="$(curl -sS --connect-timeout 5 --max-time 30 --cacert "$CACERT" \
+                -H "Authorization: Bearer $TOKEN" -X DELETE -o "$tmp" \
+                -w '%{http_code}' "${API}/api/v1/namespaces/$NS/pods/$1" 2>/dev/null || echo 000)"
+      rm -f "$tmp"
+      case "$code" in 2*|404) return 0 ;; *) log "ERROR: DELETE pod/$1 -> HTTP $code"; return 1 ;; esac
+    }
+    pod_uid() {
+      api GET "/api/v1/namespaces/$NS/pods/$1" 2>/dev/null \
+        | grep -o '"uid":"[^"]*"' | head -1 | cut -d'"' -f4
+    }
 
-    pg_role() {   # 't' (en recovery) / 'f' (primary) / '' (inalcanzable)
-      PGPASSWORD="${POSTGRESQL_ADMIN_PASSWORD:-}" \
-        psql -h "$(pod_fqdn "$1")" -p "$PGPORT" -U postgres -d postgres \
-             -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null
+    # --- Rol declarado (siempre fresco) ------------------------------------
+    role_field() {
+      printf '%s' "$CM_JSON" | grep -o "\"$1\":\"[^\"]*\"" | head -1 | cut -d'"' -f4
+    }
+
+    # --- PostgreSQL --------------------------------------------------------
+    pod_fqdn() { echo "$1.${HL}.${NS}.svc.cluster.local"; }
+    pg_role() {
+      psql -h "$(pod_fqdn "$1")" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" \
+           -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null
     }
     is_primary_ok() { [ "$(pg_role "$1")" = "f" ]; }
     is_standby_ok() { [ "$(pg_role "$1")" = "t" ]; }
 
     list_pods() {
-      api GET "/api/v1/namespaces/${NS}/pods?labelSelector=app.kubernetes.io/name%3Dpostgresql,app.kubernetes.io/component%3Ddatabase" \
+      api GET "/api/v1/namespaces/$NS/pods?labelSelector=app.kubernetes.io/name%3Dpostgresql,app.kubernetes.io/component%3Ddatabase" \
         | grep -o "\"name\":\"${STS}-[0-9]*\"" \
         | sed -e 's/.*:"//' -e 's/"$//' | sort -u
     }
 
+    cm_set_primary() {
+      jsonpatch "/api/v1/namespaces/$NS/configmaps/postgres-role" \
+        "{\"data\":{\"PRIMARY_POD\":\"$1\"}}"
+    }
     point_services() {   # $1 = pod primary, $2 = pod replica
-      jsonpatch "/api/v1/namespaces/${NS}/services/postgres-rw" \
-        "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$1\"}}}"
-      jsonpatch "/api/v1/namespaces/${NS}/services/postgres-ro" \
-        "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$2\"}}}"
+      jsonpatch "/api/v1/namespaces/$NS/services/postgres-rw" \
+        "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$1\"}}}" || return 1
+      jsonpatch "/api/v1/namespaces/$NS/services/postgres-ro" \
+        "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$2\"}}}" || return 1
     }
 
-    delete_pod() { api DELETE "/api/v1/namespaces/${NS}/pods/$1" >/dev/null 2>&1 || true; }
+    # --- Fencing verificable ----------------------------------------------
+    fence_pod() {   # borra el pod y espera a que desaparezca o cambie de UID
+      local pod="$1" uid newuid t=0
+      uid="$(pod_uid "$pod")"
+      if [ -z "$uid" ]; then log "fence: $pod ya no existe"; return 0; fi
+      log "fence: borrando $pod (uid=${uid:0:8})"
+      delete_pod "$pod" || return 1
+      while [ "$t" -lt "$FENCE_TIMEOUT" ]; do
+        sleep 5; t=$((t + 5))
+        newuid="$(pod_uid "$pod")"
+        if [ -z "$newuid" ] || [ "$newuid" != "$uid" ]; then
+          log "fence: $pod terminado (uid nuevo=${newuid:0:8})"
+          return 0
+        fi
+      done
+      log "ERROR: fence: $pod no se termino en ${FENCE_TIMEOUT}s"
+      return 1
+    }
 
+    pick_candidate() {   # $1 = ex-primary
+      local p
+      for p in $(list_pods); do
+        [ "$p" = "$1" ] && continue
+        if is_standby_ok "$p"; then echo "$p"; return 0; fi
+      done
+      return 1
+    }
+
+    # -----------------------------------------------------------------------
     main() {
-      if [ "$AUTO_FAILOVER" != "true" ]; then
-        log "auto-failover deshabilitado (AUTO_FAILOVER=$AUTO_FAILOVER)"; return 0
-      fi
-      if [ -z "$PRIMARY_POD" ]; then
-        log "ERROR: PRIMARY_POD vacio"; return 1
-      fi
-      log "primary declarado: $PRIMARY_POD"
+      CM_JSON="$(api GET "/api/v1/namespaces/$NS/configmaps/postgres-role")" \
+        || { log "ERROR: no pude leer postgres-role"; return 1; }
 
-      if is_primary_ok "$PRIMARY_POD"; then
-        log "primary OK"; return 0
-      fi
+      local auto primary grace candidate
+      auto="$(role_field AUTO_FAILOVER)"
+      primary="$(role_field PRIMARY_POD)"
+      grace="$(role_field FAILOVER_GRACE_SECONDS)"; grace="${grace:-120}"
+      STS="${primary%-*}"
 
-      log "primary no responde; esperando hasta ${GRACE}s antes de declararlo caido"
-      local deadline=$(( $(date +%s) + GRACE ))
+      if [ "$auto" != "true" ]; then
+        log "auto-failover deshabilitado (AUTO_FAILOVER=$auto)"; return 0
+      fi
+      if [ -z "$primary" ]; then
+        log "ERROR: PRIMARY_POD vacio en postgres-role"; return 1
+      fi
+      log "primary declarado: $primary"
+
+      if is_primary_ok "$primary"; then log "primary OK"; return 0; fi
+
+      log "primary no responde; esperando hasta ${grace}s antes de declararlo caido"
+      local deadline=$(( $(date +%s) + grace ))
       while [ "$(date +%s)" -lt "$deadline" ]; do
         sleep 10
-        if is_primary_ok "$PRIMARY_POD"; then log "primary se recupero; sin accion"; return 0; fi
+        if is_primary_ok "$primary"; then log "primary se recupero; sin accion"; return 0; fi
       done
-      log "primary $PRIMARY_POD declarado CAIDO"
+      log "primary $primary declarado CAIDO"
 
-      local candidate=""
-      while read -r p; do
-        [ -z "$p" ] && continue
-        [ "$p" = "$PRIMARY_POD" ] && continue
-        if is_standby_ok "$p"; then candidate="$p"; break; fi
-      done < <(list_pods)
-
+      candidate="$(pick_candidate "$primary")" || true
       if [ -z "$candidate" ]; then
-        log "ERROR: no hay replica sana disponible; no se puede hacer failover"; return 1
+        log "ERROR: no hay replica sana; no se hace failover"; return 1
       fi
       log "candidato elegido: $candidate"
 
-      log "FAILOVER: ${PRIMARY_POD} -> ${candidate}"
-      jsonpatch "/api/v1/namespaces/${NS}/configmaps/postgres-role" \
-        "{\"data\":{\"PRIMARY_POD\":\"${candidate}\"}}"
-      point_services "$candidate" "$PRIMARY_POD"
-
+      # 1) Declarar el candidato como primary.
+      if ! cm_set_primary "$candidate"; then
+        log "ERROR: no pude actualizar el ConfigMap; se aborta sin cambios"
+        return 1
+      fi
+      # 2) Reapuntar los Services (si falla, se revierte el ConfigMap).
+      if ! point_services "$candidate" "$primary"; then
+        log "ERROR: no pude reapuntar los Services; revirtiendo el ConfigMap"
+        cm_set_primary "$primary"
+        return 1
+      fi
+      # 3) Fencing del ex-primary. Si no se puede confirmar, se revierte TODO.
+      if ! fence_pod "$primary"; then
+        log "ERROR: no se pudo aislar $primary; REVIRTIENDO ConfigMap y Services"
+        cm_set_primary "$primary"
+        point_services "$primary" "$candidate"
+        return 1
+      fi
+      # 4) Promover el candidato.
       log "promoviendo $candidate (recreando el pod)"
-      delete_pod "$candidate"
+      delete_pod "$candidate" || log "ADVERTENCIA: no pude borrar $candidate (sigo)"
 
+      # 5) Confirmar. Si no promueve NO se revierte: el ex-primary ya esta
+      #    aislado y volver a declararlo primary seria peor.
       local t=0
       while [ "$t" -lt "$PROMOTE_TIMEOUT" ]; do
         sleep 10; t=$((t + 10))
         if is_primary_ok "$candidate"; then
-          log "$candidate confirmado como PRIMARY"
-          log "re-sembrando ex-primary $PRIMARY_POD (recreando el pod)"
-          delete_pod "$PRIMARY_POD"
-          log "FAILOVER OK: primary=${candidate} replica=${PRIMARY_POD}"
+          log "FAILOVER OK: primary=${candidate} (ex-primary ${primary} se re-siembra solo)"
           return 0
         fi
       done
-
-      log "ERROR: $candidate no promovio en ${PROMOTE_TIMEOUT}s -> ROLLBACK"
-      jsonpatch "/api/v1/namespaces/${NS}/configmaps/postgres-role" \
-        "{\"data\":{\"PRIMARY_POD\":\"${PRIMARY_POD}\"}}"
-      point_services "$PRIMARY_POD" "$candidate"
+      log "CRITICO: $candidate no promovio en ${PROMOTE_TIMEOUT}s."
+      log "CRITICO: el ConfigMap ya declara primary=${candidate}. NO se revierte. Requiere intervencion."
       return 1
     }
 

@@ -34,6 +34,15 @@ IP_OLD="$(oc -n "$NS" get pod "$PRIMARY" -o jsonpath='{.status.podIP}')"
 check_eq "postgres-ro fue reapuntado a la nueva replica" "$IP_OLD" \
   "$(oc -n "$NS" get endpoints postgres-ro -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null)"
 
+# Reaplicar los manifiestos NO debe revertir el failover
+echo "  (reaplicando manifiestos con $REPLICA como primary)"
+NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" >/dev/null 2>&1 || c_fail "deploy.sh fallo tras el failover"
+check_eq "deploy.sh preserva PRIMARY_POD=$REPLICA" "$REPLICA" "$(primary_pod)"
+check_eq "deploy.sh preserva el selector de postgres-rw" "$REPLICA" \
+  "$(oc -n "$NS" get svc postgres-rw -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null)"
+check_eq "deploy.sh preserva el selector de postgres-ro" "$PRIMARY" \
+  "$(oc -n "$NS" get svc postgres-ro -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null)"
+
 # --- FAILBACK ---
 echo "  (failback: promoviendo de vuelta $PRIMARY)"
 FORCE=1 "$ROOT_DIR/scripts/failover-manual.sh" "$PRIMARY" || c_fail "el failback fallo"

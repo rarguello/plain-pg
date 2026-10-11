@@ -2,11 +2,14 @@
 # cronjob.yaml
 #
 # Corre el controlador de failover cada minuto. `concurrencyPolicy: Forbid`
-# evita solapamiento (una corrida puede durar la gracia + la promocion).
+# evita que dos corridas se solapen.
 #
-# El pod del CronJob NO tiene estado: lee PRIMARY_POD / AUTO_FAILOVER /
-# FAILOVER_GRACE_SECONDS del ConfigMap postgres-role via envFrom (se resuelve
-# en cada corrida) y las credenciales del Secret postgres-credentials.
+# El pod del CronJob NO tiene estado: lee el rol declarado desde la API en cada
+# corrida (no de variables de entorno, que quedarian viejas si un failover
+# manual cambia el ConfigMap mientras el pod arranca).
+#
+# Credenciales: SOLO el usuario de la aplicacion (alcanza para
+# `SELECT pg_is_in_recovery()`). No se le pasa la del superusuario.
 ###############################################################################
 
 apiVersion: batch/v1
@@ -53,11 +56,6 @@ spec:
                 allowPrivilegeEscalation: false
                 capabilities:
                   drop: ["ALL"]
-              envFrom:
-                - configMapRef:
-                    name: postgres-role
-                - secretRef:
-                    name: postgres-credentials
               env:
                 - name: POD_NAMESPACE
                   valueFrom:
@@ -67,6 +65,21 @@ spec:
                   value: postgres-hl
                 - name: PGPORT
                   value: "5432"
+                - name: POSTGRESQL_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-credentials
+                      key: POSTGRESQL_USER
+                - name: POSTGRESQL_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-credentials
+                      key: POSTGRESQL_PASSWORD
+                - name: POSTGRESQL_DATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-credentials
+                      key: POSTGRESQL_DATABASE
               resources:
                 requests:
                   cpu: "20m"

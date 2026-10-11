@@ -2,7 +2,10 @@
 # rbac.yaml
 #
 # Permisos MINIMOS del CronJob de failover automatico. Todo scopeado al
-# namespace (Role, no ClusterRole).
+# namespace (Role, no ClusterRole) y, donde se puede, a recursos concretos.
+#
+# Nota: el borrado de pods no se puede acotar por nombre (los pods de un
+# StatefulSet tienen nombres variables), asi que queda a nivel de namespace.
 ###############################################################################
 
 apiVersion: v1
@@ -10,8 +13,8 @@ kind: ServiceAccount
 metadata:
   name: postgres-failover
   labels:
-    app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
+    app.kubernetes.io/name: pg-failover
+    app.kubernetes.io/instance: pg-ha
     app.kubernetes.io/part-of: pg-ha
     app.kubernetes.io/component: failover
 
@@ -21,20 +24,25 @@ kind: Role
 metadata:
   name: postgres-failover
   labels:
-    app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
+    app.kubernetes.io/name: pg-failover
+    app.kubernetes.io/instance: pg-ha
     app.kubernetes.io/part-of: pg-ha
     app.kubernetes.io/component: failover
 rules:
+  # Leer el rol declarado y los pods; aislar (borrar) el ex-primary.
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "delete"]
+  # Leer y actualizar SOLO el ConfigMap de rol.
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "patch"]
+    resourceNames: ["postgres-role"]
+  # Reapuntar SOLO los Services de la base.
   - apiGroups: [""]
     resources: ["services"]
-    verbs: ["get", "patch"]
+    verbs: ["patch"]
+    resourceNames: ["postgres-rw", "postgres-ro"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -42,8 +50,8 @@ kind: RoleBinding
 metadata:
   name: postgres-failover
   labels:
-    app.kubernetes.io/name: postgresql
-    app.kubernetes.io/instance: postgres
+    app.kubernetes.io/name: pg-failover
+    app.kubernetes.io/instance: pg-ha
     app.kubernetes.io/part-of: pg-ha
     app.kubernetes.io/component: failover
 subjects:

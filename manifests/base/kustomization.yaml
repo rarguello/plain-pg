@@ -7,6 +7,9 @@ kind: Kustomization
 resources:
   - configmap-scripts.yaml
   - configmap-role.yaml
+  - configmap-backup-scripts.yaml
+  - pvc-backups.yaml
   - services.yaml
   - statefulset.yaml
+  - cronjob-backup.yaml
   - networkpolicy.yaml
