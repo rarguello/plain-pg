@@ -2,7 +2,7 @@
 SHELL    := /usr/bin/env bash
 NS       ?= plain-pg
 OVERLAY  ?= manifests/overlays/lab
-RENDERED := /tmp/plain-pg-rendered.yaml
+RENDERED := /tmp/plain-pg-rendered
 
 .PHONY: help deploy teardown verify failover backup lint test test-quick
 
@@ -12,7 +12,7 @@ help:
 	@echo "make verify       verifies replication"
 	@echo "make failover     promotes a replica"
 	@echo "make backup       manual backup"
-	@echo "make lint         shellcheck + kustomize + embedded scripts"
+	@echo "make lint         shellcheck + kustomize + embedded scripts + policies"
 	@echo "make test-quick   non-destructive tests"
 	@echo "make test         all tests (includes destructive)"
 
@@ -33,9 +33,11 @@ backup:
 
 lint:
 	shellcheck -S warning scripts/*.sh tests/*.sh
-	oc kustomize $(OVERLAY) > $(RENDERED)
-	oc kustomize manifests/overlays/lab-manual > $(RENDERED).manual
-	python3 tools/check-scripts.py $(RENDERED) $(RENDERED).manual
+	oc kustomize manifests/overlays/lab > $(RENDERED).lab.yaml
+	oc kustomize manifests/overlays/lab-manual > $(RENDERED).lab-manual.yaml
+	oc kustomize manifests/overlays/lab-autoscale > $(RENDERED).lab-autoscale.yaml
+	python3 tools/check-scripts.py $(RENDERED).lab.yaml $(RENDERED).lab-manual.yaml
+	python3 tools/check-policies.py $(RENDERED).lab.yaml $(RENDERED).lab-manual.yaml $(RENDERED).lab-autoscale.yaml
 
 test-quick:
 	./tests/run-all.sh quick

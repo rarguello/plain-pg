@@ -55,8 +55,8 @@ fi
 
 echo "Failover: $OLD (primary) -> $CANDIDATE (replica)"
 if [ "${FORCE:-0}" != "1" ]; then
-  read -r -p "Continue? [y/N] " ans
-  [ "$ans" = "y" ] || { echo "Canceled."; exit 1; }
+  read -r -p "Continue? [y/N] " answer
+  [ "$answer" = "y" ] || { echo "Canceled."; exit 1; }
 fi
 
 # --- helpers ---------------------------------------------------------------

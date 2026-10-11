@@ -1,0 +1,6 @@
+# lychee -- check the links in the Markdown. Offline so CI does not depend on
+# the network or on external rate limits; it still verifies relative paths and
+# the anchors inside this repo.
+offline = true
+max_retries = 2
+exclude_path = ["docs/evidence"]

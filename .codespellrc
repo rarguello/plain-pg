@@ -1,0 +1,5 @@
+# codespell -- typo check. The raw test transcripts are excluded (they contain
+# cluster output, not prose) and the local secrets dir is not read.
+[codespell]
+skip = .git,secrets,docs/evidence,*.log
+ignore-words-list = crat,ba,te

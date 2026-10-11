@@ -146,7 +146,7 @@ persistence, backups, scaling and the HPA. See [docs/tests.md](docs/tests.md).
 - [docs/backups.md](docs/backups.md) — backups and restore
 - [docs/scaling.md](docs/scaling.md) — reads and the HPA
 - [docs/tests.md](docs/tests.md) — the test suite
-- [docs/evidence/](docs/evidence/) — raw output of suite runs
+- [docs/evidence/README.md](docs/evidence/README.md) — raw output of suite runs
 
 ## Layout
 

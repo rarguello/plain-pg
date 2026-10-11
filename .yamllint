@@ -1,0 +1,21 @@
+---
+# yamllint -- style only; the manifests are validated semantically by
+# kubeconform and tools/check-policies.py.
+extends: default
+
+rules:
+  line-length: disable        # long inline comments and commands are fine
+  document-start: disable     # we do not start every file with ---
+  comments-indentation: disable
+  truthy: disable
+  empty-lines:
+    max: 2
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+ignore: |
+  secrets/

@@ -1,0 +1,15 @@
+# markdownlint-cli2 -- prose structure only, not layout.
+config:
+  default: true
+  MD013: false   # line length: tables and long commands are fine
+  MD033: false   # inline HTML (e.g. <br/> in diagram labels)
+  MD040: false   # fenced code blocks without a language (the layout block)
+  MD041: false   # first line must be a heading
+  MD060: false   # table column style (only in newer releases)
+
+globs:
+  - "*.md"
+  - "docs/**/*.md"
+
+ignores:
+  - "docs/evidence/**"   # raw test transcripts, not prose

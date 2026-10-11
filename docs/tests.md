@@ -11,9 +11,8 @@ The suite runs against a real cluster; there are no mocks. Each test prints
 
 ## Coverage
 
-Coverage, with the outcome of the last full run against a real cluster:
-
-**23/23 tests · 233 checks · 0 failures**
+Coverage. Last full run against a real cluster: **23/23 tests · 233 checks · 0
+failures** (transcript in [Evidence](#evidence)).
 
 | Test | What it proves | Checks | Result |
 |---|---|---:|---|
@@ -58,10 +57,12 @@ templates, not every Job the scripts create.
   exists, Python with PyYAML, and it generates a throwaway
   `postgresql-credentials` Secret from gitignored `secrets/` (a real deploy
   creates it by hand; see `operations.md`).
-- Without a cluster: `oc kustomize` of the overlays plus
-  `tools/check-scripts.py` validate the scripts embedded in the ConfigMaps, and
-  `shellcheck -S warning scripts/*.sh tests/*.sh` lints the rest. CI
-  (`.github/workflows/lint.yml`) runs all of that on every push.
+- Without a cluster, `make lint` runs shellcheck, renders the three overlays, and
+  validates the embedded scripts (`tools/check-scripts.py`) and the AGENTS.md hard
+  rules — pinned UBI image, no operators, namespace, auxiliary-pod labels,
+  PodSecurity — via `tools/check-policies.py`. CI (`.github/workflows/ci.yml`)
+  adds kubeconform, yamllint, markdownlint, codespell, lychee, actionlint and
+  gitleaks.
 
 ## Evidence
 
