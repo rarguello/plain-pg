@@ -22,8 +22,8 @@ check "la replica rechaza DDL (CREATE TABLE)" ddl_fails "$REPLICA"
 
 # pg_hba no debe permitir 'trust' para conexiones de red
 HBA="$(oc -n "$NS" exec "$PRIMARY" -- cat "$PGDATA_PATH/pg_hba.conf" 2>/dev/null)"
-check "pg_hba no permite 'trust' en conexiones host" \
-  bash -c "! printf '%s' \"\$HBA\" | grep -E '^host' | grep -qw trust"
+hba_without_trust() { ! printf '%s\n' "$HBA" | grep -E '^host' | grep -qw trust; }
+check "pg_hba no permite 'trust' en conexiones host" hba_without_trust
 
 # El superusuario por TCP exige password
 check "el superusuario no entra por TCP sin password" \
