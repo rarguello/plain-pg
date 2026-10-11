@@ -48,6 +48,9 @@ pass — read the summary, not just the exit code.
 
 - `oc` logged in with permission to create namespaces; `skopeo` and a pull secret
   for `t18`; a default StorageClass with `WaitForFirstConsumer`.
+- The suite's `scripts/deploy.sh` generates a throwaway `postgresql-credentials`
+  Secret from gitignored `secrets/` (a real deploy creates it by hand; see
+  `operations.md`).
 - Without a cluster: `oc kustomize` of the overlays plus
   `tools/check-scripts.py` validate the scripts embedded in the ConfigMaps, and
   `shellcheck -S warning scripts/*.sh tests/*.sh` lints the rest. CI

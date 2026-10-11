@@ -2,23 +2,58 @@
 
 ## Deploy
 
+A real install is just manifests: create the namespace and the credentials Secret
+by hand, then apply. The primary runs `initdb` and the replica `pg_basebackup` on
+startup, so there is nothing else to run.
+
 ```bash
-./scripts/deploy.sh                                 # full (with automatic failover)
-./scripts/deploy.sh manifests/overlays/lab-manual   # manual failover only
+oc apply -f manifests/base/namespace.yaml
+oc -n postgresql-lab create secret generic postgresql-credentials ...   # see Credentials
+oc apply -k manifests/overlays/lab
+oc -n postgresql-lab get pods      # wait for 2/2 Ready
 ```
 
-`deploy.sh` needs `oc` and, when it reapplies over an existing deployment, Python
-with PyYAML. It renders the overlay with Kustomize,
-generates the Secret (random passwords, outside git) and waits for the pods to be
-Ready. It is idempotent.
+Re-applying the overlay on a live cluster **resets** `PRIMARY_POD`, the
+`-rw`/`-ro` selectors and `spec.replicas` — it would revert a failover and fight an
+HPA. To change something live, patch that object; to return to the initial primary,
+`./scripts/failover-manual.sh postgresql-0`.
 
-On an existing deployment it does **not** apply the `postgresql-role` ConfigMap
-nor the `postgresql-rw`/`postgresql-ro` Services: that is operational state owned
-by the failover scripts, and applying it would silently revert a failover. The
-StatefulSet is applied server-side without `spec.replicas`, so `deploy.sh` never
-writes a replica count and a concurrent HPA scale is left alone. To change those
-values on a live cluster, patch them explicitly; to return to the initial primary,
-fail back with `./scripts/failover-manual.sh postgresql-0`.
+For manual failover only (no failover CronJob), apply
+`manifests/overlays/lab-manual` instead.
+
+## Credentials
+
+`postgresql-credentials` is never in git. Create it by hand before the apply; the
+test tooling generates a throwaway one. Any of these works:
+
+```bash
+oc -n postgresql-lab create secret generic postgresql-credentials \
+  --from-literal=POSTGRESQL_USER=app                --from-literal=POSTGRESQL_PASSWORD='<app-pw>' \
+  --from-literal=POSTGRESQL_DATABASE=appdb           --from-literal=POSTGRESQL_ADMIN_PASSWORD='<admin-pw>' \
+  --from-literal=POSTGRESQL_MASTER_USER=replicator   --from-literal=POSTGRESQL_MASTER_PASSWORD='<repl-pw>'
+```
+
+- **Your own kustomize**: add a `secretGenerator` for `postgresql-credentials`
+  with `options.disableNameSuffixHash: true`, reading a gitignored `envs` file, so
+  `oc apply -k` creates it too.
+- **ExternalSecret** (recommended when the credentials live in a secret manager):
+  an `ExternalSecret` from the External Secrets Operator that materializes
+  `postgresql-credentials` from Vault/AWS/GCP/Azure. Not shipped here; wire it to
+  your platform.
+
+Required keys: `POSTGRESQL_USER`, `POSTGRESQL_PASSWORD`, `POSTGRESQL_DATABASE`,
+`POSTGRESQL_ADMIN_PASSWORD`, `POSTGRESQL_MASTER_USER`, `POSTGRESQL_MASTER_PASSWORD`.
+
+## Scripts (test tooling)
+
+`scripts/deploy.sh`, used by the test suite, is a wrapper that re-applies the
+overlay while preserving a failover: it skips the `postgresql-role` ConfigMap and
+the `-rw`/`-ro` Services, applies the StatefulSet server-side without
+`spec.replicas`, generates a throwaway Secret in gitignored `secrets/`, and waits
+for the pods. It needs Python with PyYAML when it reapplies over an existing
+deployment. The other scripts (`verify-replication.sh`, `failover-manual.sh`,
+`backup-now.sh`, `restore-backup.sh`, `reseed-replica.sh`, `read-load.sh`) do what
+their names say; see `tests.md`.
 
 ## Verify and connect
 
@@ -28,7 +63,7 @@ oc -n postgresql-lab get pods,pvc,svc
 oc -n postgresql-lab exec postgresql-0 -- psql -U postgres -c 'SELECT * FROM pg_stat_replication;'
 ```
 
-The credentials are in `secrets/postgresql-credentials.env` (not versioned).
+Use the credentials you put in the Secret (see [Credentials](#credentials)).
 
 ```bash
 NS=postgresql-lab

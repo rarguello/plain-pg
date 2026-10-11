@@ -5,19 +5,56 @@ operator, no CRDs, no console. A two-pod StatefulSet where the `postgresql-role`
 ConfigMap decides which pod is primary, so a failover is changing a value and
 recreating pods.
 
-```
-writes ──▶ postgresql-rw ──▶ postgresql-0  [PRIMARY]  ──▶ PVC pgdata-postgresql-0
-reads  ──▶ postgresql-r  ──▶ every Ready instance (load-balanced)
-reads  ──▶ postgresql-ro ──▶ postgresql-1  [STANDBY]  ──▶ PVC pgdata-postgresql-1
-                                  ▲
-                   WAL streaming  │   postgresql-hl: per-pod DNS
+```mermaid
+flowchart LR
+  client["app / clients"]
 
-CronJob postgresql-backup   ──▶ pg_dump ──▶ PVC postgresql-backups
-CronJob postgresql-failover ──▶ promotes a replica if the primary stops answering
-HPA postgresql-read         ──▶ grows the read fleet under load (optional)
+  rw["postgresql-rw"]
+  r["postgresql-r"]
+  ro["postgresql-ro"]
+  hl["postgresql-hl<br/>per-pod DNS"]
+
+  p0["postgresql-0<br/>PRIMARY"]
+  p1["postgresql-1<br/>HOT STANDBY"]
+
+  client -->|writes| rw --> p0
+  client -->|reads, load-balanced| r --> p0
+  r --> p1
+  client -->|reads, replica only| ro --> p1
+  p0 -.->|WAL streaming| p1
+  p0 --- hl
+  p1 --- hl
+
+  backup["CronJob postgresql-backup<br/>pg_dump"] --> rw
+  failover["CronJob postgresql-failover<br/>promotes on failure"] -.-> p1
+  hpa["HPA postgresql-read<br/>adds replicas"] -.-> p1
 ```
 
-## How the role works
+`postgresql-rw` carries writes to the primary. `postgresql-r` spreads reads over
+**every** Ready instance (so it scales when the read HPA adds replicas).
+`postgresql-ro` sends reads **only to the replica**, to keep them off the primary.
+`postgresql-hl` is headless DNS, used by replication.
+
+## Why it exists
+
+One PostgreSQL server is a single point of failure with one server's worth of
+reads. PostgreSQL ships the mechanism to fix that — **streaming replication**, in
+which the primary streams its WAL to a hot standby that stays online and answers
+read-only queries. What it does *not* do is decide when to promote the standby,
+keep the replication config current, or repoint clients; that part is the work:
+
+| Approach | What is still on you |
+|---|---|
+| PostgreSQL on two hosts, wired by hand | create the standby, keep `primary_conninfo` current, promote on failure, re-seed the old primary when it returns, repoint clients |
+| PostgreSQL on Kubernetes | pods restart and reschedule, but it does not configure replication, pick the primary, or repoint the Services |
+| A dedicated HA stack (CloudNativePG, Crunchy PGO, Patroni) | more automation, but another distributed system or CRD stack to run |
+
+This project is the middle path: PostgreSQL's own replication on plain Kubernetes
+objects. A ConfigMap holds the role, the entrypoint configures each pod for it (no
+per-server setup), reads scale through `postgresql-r`, and failover is a script —
+not an operator.
+
+## How the primary is chosen
 
 `postgresql-0` is primary by convention, not by code. On startup each pod reads
 `PRIMARY_POD` and, if it matches its own name, starts as primary; otherwise it
@@ -39,20 +76,33 @@ the role and recreate the pods".
 
 ## Quick start
 
-You need `oc` logged into a cluster, `git`, and Python with PyYAML (the last one
-only when re-applying over an existing deployment).
+This is plain Kubernetes: no operator, nothing to bootstrap. Create the namespace
+and the credentials Secret (never in git), then apply the overlay. The primary
+runs `initdb` and the replica runs `pg_basebackup` on startup, so that is the
+whole install.
 
 ```bash
 git clone https://github.com/rarguello/plain-pg.git && cd plain-pg
-./scripts/deploy.sh              # full overlay (with automatic failover)
-./scripts/verify-replication.sh  # checks the replica is up to date
+
+oc apply -f manifests/base/namespace.yaml          # the postgresql-lab namespace
+oc -n postgresql-lab create secret generic postgresql-credentials \
+  --from-literal=POSTGRESQL_USER=app        --from-literal=POSTGRESQL_PASSWORD='<app-pw>' \
+  --from-literal=POSTGRESQL_DATABASE=appdb  --from-literal=POSTGRESQL_ADMIN_PASSWORD='<admin-pw>' \
+  --from-literal=POSTGRESQL_MASTER_USER=replicator --from-literal=POSTGRESQL_MASTER_PASSWORD='<repl-pw>'
+oc apply -k manifests/overlays/lab
+
+oc -n postgresql-lab get pods          # wait for 2/2 Ready
 ```
 
-Manual failover only (no failover CronJob):
-`./scripts/deploy.sh manifests/overlays/lab-manual`.
+Manual failover only (no failover CronJob): apply `manifests/overlays/lab-manual`
+instead.
 
-Tear down: `./scripts/teardown.sh` (keeps the namespace) or `./scripts/teardown.sh --all`.
-There is a `Makefile`: `make deploy`, `verify`, `lint`, `test-quick`, `test`.
+The `scripts/` are for the test suite and day-2 operations, not the install:
+`deploy.sh` re-applies the overlay without reverting a failover, and
+`verify-replication.sh`, `failover-manual.sh`, `backup-now.sh`, `reseed-replica.sh`
+do what their names say. Tear down with `./scripts/teardown.sh` (keeps the
+namespace) or `--all`. There is a `Makefile`: `make deploy`, `verify`, `lint`,
+`test-quick`, `test`.
 
 ## Limits
 

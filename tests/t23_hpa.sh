@@ -33,6 +33,13 @@ check "the HPA exists" oc -n "$NS" get hpa postgresql-read
 check_eq "minReplicas is 2" "2" \
   "$(oc -n "$NS" get hpa postgresql-read -o jsonpath='{.spec.minReplicas}' 2>/dev/null)"
 
+# The lab is a single node that is already busy: a 5-pod fleet over-subscribes it
+# (the extra replicas stay Pending on the node's pod limit) and the churn makes
+# this test flaky. Cap the HPA for the test; one extra replica is enough to prove
+# that autoscaling adds a replica and that postgresql-r routes reads to it.
+# The shipped maxReplicas lives in components/read-scaling/hpa.yaml.
+oc -n "$NS" patch hpa postgresql-read --type merge -p '{"spec":{"maxReplicas":3}}' >/dev/null
+
 hpa_has_metrics() {
   [ -n "$(oc -n "$NS" get hpa postgresql-read -o jsonpath='{.status.currentMetrics}' 2>/dev/null)" ]
 }
@@ -104,9 +111,16 @@ echo "    fleet grew to $(oc -n "$NS" get sts postgresql -o jsonpath='{.spec.rep
 wait_for 420 "$NEW becomes Ready" pod_ready "$NEW"
 check_eq "$NEW is a standby" "t" "$(pod_in_recovery "$NEW")"
 
-new_ip="$(oc -n "$NS" get pod "$NEW" -o jsonpath='{.status.podIP}')"
-check "postgresql-r includes the new replica without any Service change" \
-  bash -c "oc -n $NS get endpoints postgresql-r -o jsonpath='{.subsets[*].addresses[*].ip}' | grep -qw '$new_ip'"
+# The Endpoints object updates a moment after the pod is Ready, and a pod can be
+# recreated under load: retry and re-resolve its IP on every attempt.
+new_ip="$(oc -n "$NS" get pod "$NEW" -o jsonpath='{.status.podIP}' 2>/dev/null)"
+new_in_endpoints() {
+  new_ip="$(oc -n "$NS" get pod "$NEW" -o jsonpath='{.status.podIP}' 2>/dev/null)"
+  [ -n "$new_ip" ] || return 1
+  oc -n "$NS" get endpoints postgresql-r \
+    -o jsonpath='{.subsets[*].addresses[*].ip}' | grep -qw "$new_ip"
+}
+wait_for 180 "postgresql-r includes the new replica without any Service change" new_in_endpoints
 
 # ... and a fresh connection through postgresql-r actually lands on it.
 new_serves_reads() {
@@ -125,6 +139,13 @@ echo "  (restoring: replicas=$START_REPLICAS, hpa=$HAD_HPA)"
 [ "$HAD_HPA" = "1" ] || oc -n "$NS" delete hpa postgresql-read --ignore-not-found >/dev/null 2>&1
 oc -n "$NS" scale statefulset postgresql --replicas="$START_REPLICAS" >/dev/null
 wait_for 420 "back to $START_REPLICAS Ready pods" wait_db_ready "$START_REPLICAS"
+
+# Wait for the scaled-down pods to actually disappear first: a still-Terminating
+# pod makes the orphan-PVC sweep below skip its PVC.
+extra_replicas_gone() {
+  ! oc -n "$NS" get pods -o name | grep -Eq 'pod/postgresql-([2-9]|[1-9][0-9]+)$'
+}
+wait_for 180 "the extra replicas are gone" extra_replicas_gone
 
 # Delete only PVCs whose pod no longer exists (orphans left by the scale-down).
 for pvc in $(oc -n "$NS" get pvc -o name 2>/dev/null | sed 's|.*/||' | grep '^pgdata-postgresql-'); do
