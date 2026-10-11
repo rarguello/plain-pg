@@ -35,8 +35,9 @@ kind: Job
 metadata:
   name: $WRITER
   labels:
-    app.kubernetes.io/name: pg-backup
+    app.kubernetes.io/name: pg-load
     app.kubernetes.io/instance: plain-pg
+    app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: test
 spec:
   backoffLimit: 0
@@ -44,8 +45,9 @@ spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: pg-backup
+        app.kubernetes.io/name: pg-load
         app.kubernetes.io/instance: plain-pg
+        app.kubernetes.io/part-of: plain-pg
         app.kubernetes.io/component: test
     spec:
       restartPolicy: Never

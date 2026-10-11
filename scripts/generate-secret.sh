@@ -23,6 +23,15 @@ POSTGRESQL_MASTER_USER="${POSTGRESQL_MASTER_USER:-replicator}"
 # Alphanumeric password (avoids quoting problems in primary_conninfo).
 gen() { head -c 4096 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | cut -c1-"${1:-24}"; }
 
+# Never overwrite an existing Secret: the credentials are an input, not an
+# artifact of this script. Rotating them here would leave PostgreSQL's roles
+# unchanged and break new pods, replication, backups and failover.
+if oc -n "$NS" get secret postgresql-credentials >/dev/null 2>&1; then
+  echo "==> Secret postgresql-credentials already exists in $NS; leaving it as is."
+  echo "    (delete it by hand first if you really want to rotate the credentials)"
+  exit 0
+fi
+
 mkdir -p "$OUT_DIR"
 
 if [ -f "$SECRET_FILE" ]; then

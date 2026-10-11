@@ -40,6 +40,8 @@ spec:
             runAsNonRoot: true
             seccompProfile:
               type: RuntimeDefault
+          # The Job never calls the API server.
+          automountServiceAccountToken: false
           containers:
             - name: backup
               image: registry.redhat.io/rhel10/postgresql-18:latest
@@ -48,10 +50,22 @@ spec:
                 allowPrivilegeEscalation: false
                 capabilities:
                   drop: ["ALL"]
-              envFrom:
-                - secretRef:
-                    name: postgresql-credentials
+              # Only the keys backup.sh uses: the app user/database and the
+              # superuser password for pg_dumpall --globals-only. Not the
+              # replication credentials.
               env:
+                - name: POSTGRESQL_USER
+                  valueFrom:
+                    secretKeyRef: { name: postgresql-credentials, key: POSTGRESQL_USER }
+                - name: POSTGRESQL_PASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: postgresql-credentials, key: POSTGRESQL_PASSWORD }
+                - name: POSTGRESQL_DATABASE
+                  valueFrom:
+                    secretKeyRef: { name: postgresql-credentials, key: POSTGRESQL_DATABASE }
+                - name: POSTGRESQL_ADMIN_PASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: postgresql-credentials, key: POSTGRESQL_ADMIN_PASSWORD }
                 - name: BACKUP_HOST
                   value: postgresql-rw
                 - name: BACKUP_DIR

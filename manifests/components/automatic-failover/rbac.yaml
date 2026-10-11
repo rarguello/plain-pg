@@ -3,10 +3,8 @@
 #
 # MINIMAL permissions for the automatic failover CronJob. Everything scoped to
 # the namespace (Role, not ClusterRole) and, where possible, to specific
-# resources.
-#
-# Note: pod deletion cannot be scoped by name (StatefulSet pods have variable
-# names), so it stays at the namespace level.
+# resources: the role ConfigMap, the two routing Services, and the two pods that
+# can ever be primary.
 ###############################################################################
 
 apiVersion: v1
@@ -30,10 +28,16 @@ metadata:
     app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: failover
 rules:
-  # Read the declared role and the pods; isolate (delete) the ex-primary.
+  # Candidate discovery: list pods cannot be scoped by name.
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "delete"]
+    verbs: ["list"]
+  # Isolate the ex-primary. Only the two pods that can ever be primary may be
+  # read or deleted (a higher ordinal could be a read replica owned by the HPA).
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "delete"]
+    resourceNames: ["postgresql-0", "postgresql-1"]
   # Read and update ONLY the role ConfigMap.
   - apiGroups: [""]
     resources: ["configmaps"]

@@ -38,15 +38,13 @@ restored by hand (`psql -f <file>-globals.sql`).
 | `BACKUP_HOST` | `CronJob postgresql-backup` | `postgresql-rw` |
 | `BACKUP_DIR` | `CronJob postgresql-backup` | `/backups` |
 
-Change the CronJob `schedule` for another frequency. Set `BACKUP_HOST=postgresql-ro`
-to dump from the replica (a few seconds behind).
+Change the CronJob `schedule` for another frequency. Set
+`BACKUP_HOST=postgresql-ro` to dump from the replica instead.
 
 ## Scope
 
-- **Not PITR**: no WAL archiving, so there is no "restore to 14:32". That needs
-  `archive_mode`/`archive_command` and a `restore_command`; it is out of scope
-  here.
-- **Not off-cluster**: the PVC is the only copy, so losing it loses the backups.
-- **Only the app database**: add a `pg_dump` per extra database in `backup.sh`.
-- **Verification is structural**: the Job checks the dump can be listed; only
-  `restore-backup.sh` (and `t12`) prove it actually restores.
+No WAL archiving, so there is no point-in-time recovery ("restore to 14:32");
+that needs `archive_mode`/`archive_command` and a `restore_command`. The PVC is
+the only copy, so losing it loses the backups. Only the app database is dumped;
+add a `pg_dump` per extra database in `backup.sh`. The Job checks that the dump
+can be listed; only `restore-backup.sh` (and `t12`) prove it actually restores.

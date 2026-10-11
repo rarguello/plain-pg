@@ -8,7 +8,7 @@ startup, so there is nothing else to run.
 
 ```bash
 oc apply -f manifests/base/namespace.yaml
-oc -n plain-pg create secret generic postgresql-credentials ...   # see Credentials
+# create the Secret first: the full command is under Credentials, below
 oc apply -k manifests/overlays/lab
 oc -n plain-pg get pods      # wait for 2/2 Ready
 ```
@@ -19,13 +19,17 @@ HPA. To change something live, patch that object; to return to the initial prima
 `./scripts/failover-manual.sh postgresql-0`.
 
 For manual failover only (no failover CronJob), apply
-`manifests/overlays/lab-manual` instead. `plain-pg` is just the example namespace:
-change `namespace:` in the overlay (and `NS` for the scripts) to deploy elsewhere.
+`manifests/overlays/lab-manual` instead.
+
+`plain-pg` is only the example namespace. To deploy elsewhere, change
+`metadata.name` in `manifests/base/namespace.yaml`, the `namespace:` field in each
+overlay (`lab`, `lab-manual`, `lab-autoscale`), and `NS` in `scripts/lib.sh`; the
+commands in this document then need the same namespace.
 
 ## Credentials
 
 `postgresql-credentials` is never in git. Create it by hand before the apply; the
-test tooling generates a throwaway one. Any of these works:
+test tooling generates a throwaway one. The command:
 
 ```bash
 oc -n plain-pg create secret generic postgresql-credentials \
@@ -34,16 +38,16 @@ oc -n plain-pg create secret generic postgresql-credentials \
   --from-literal=POSTGRESQL_MASTER_USER=replicator   --from-literal=POSTGRESQL_MASTER_PASSWORD='<repl-pw>'
 ```
 
-- **Your own kustomize**: add a `secretGenerator` for `postgresql-credentials`
-  with `options.disableNameSuffixHash: true`, reading a gitignored `envs` file, so
-  `oc apply -k` creates it too.
-- **ExternalSecret** (recommended when the credentials live in a secret manager):
-  an `ExternalSecret` from the External Secrets Operator that materializes
-  `postgresql-credentials` from Vault/AWS/GCP/Azure. Not shipped here; wire it to
-  your platform.
-
 Required keys: `POSTGRESQL_USER`, `POSTGRESQL_PASSWORD`, `POSTGRESQL_DATABASE`,
 `POSTGRESQL_ADMIN_PASSWORD`, `POSTGRESQL_MASTER_USER`, `POSTGRESQL_MASTER_PASSWORD`.
+
+Neither of these is shipped or tested here; they are integration options if you
+prefer not to create the Secret by hand:
+
+- a `secretGenerator` in your own kustomization (with
+  `options.disableNameSuffixHash: true`), reading a gitignored `envs` file; or
+- an `ExternalSecret` from the External Secrets Operator that materializes
+  `postgresql-credentials` from Vault/AWS/GCP/Azure.
 
 ## Scripts (test tooling)
 
@@ -53,8 +57,8 @@ the `-rw`/`-ro` Services, applies the StatefulSet server-side without
 `spec.replicas`, generates a throwaway Secret in gitignored `secrets/`, and waits
 for the pods. It needs Python with PyYAML when it reapplies over an existing
 deployment. The other scripts (`verify-replication.sh`, `failover-manual.sh`,
-`backup-now.sh`, `restore-backup.sh`, `reseed-replica.sh`, `read-load.sh`) do what
-their names say; see `tests.md`.
+`backup-now.sh`, `restore-backup.sh`, `reseed-replica.sh`, `read-load.sh`) are the
+day-2 helpers; see `tests.md`.
 
 ## Verify and connect
 
@@ -83,9 +87,10 @@ oc -n plain-pg delete pod postgresql-0     # restart the primary (brief outage)
 ./scripts/reseed-replica.sh postgresql-1         # re-seed a broken replica
 ```
 
-Add a replica with `oc scale sts postgresql --replicas=3`. Scaling back leaves the
-removed pod's PVC orphaned (`oc delete pvc pgdata-postgresql-N`). Do not scale by
-hand while an HPA owns `replicas` (see `scaling.md`).
+Add a replica with `oc -n plain-pg scale sts postgresql --replicas=3`. Scaling back
+leaves the removed pod's PVC orphaned
+(`oc -n plain-pg delete pvc pgdata-postgresql-N`). Do not scale by hand while an
+HPA owns `replicas` (see `scaling.md`).
 
 ## Recovery
 

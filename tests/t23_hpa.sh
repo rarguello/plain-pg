@@ -21,6 +21,17 @@ START_REPLICAS="$(oc -n "$NS" get sts postgresql -o jsonpath='{.spec.replicas}')
 HAD_HPA=0
 oc -n "$NS" get hpa postgresql-read >/dev/null 2>&1 && HAD_HPA=1
 echo "  starting state: replicas=$START_REPLICAS hpa=$HAD_HPA"
+
+# PVCs that already exist: the cleanup below must not delete them.
+PVC_BEFORE="$(oc -n "$NS" get pvc -o name 2>/dev/null | sed 's|.*/||' | grep '^pgdata-postgresql-' | sort || true)"
+
+# Restore the starting state even if the test is interrupted.
+cleanup() {
+  oc -n "$NS" delete job "$JOB" --ignore-not-found >/dev/null 2>&1 || true
+  [ "$HAD_HPA" = "1" ] || oc -n "$NS" delete hpa postgresql-read --ignore-not-found >/dev/null 2>&1 || true
+  oc -n "$NS" scale statefulset postgresql --replicas="$START_REPLICAS" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 if [ "$HAD_HPA" = 1 ] || [ "$START_REPLICAS" != 2 ] || [ "$PRIMARY" != postgresql-0 ]; then
   c_skip "t23 requires two pods, primary postgresql-0, and no existing HPA"
   t_summary
@@ -147,8 +158,9 @@ extra_replicas_gone() {
 }
 wait_for 180 "the extra replicas are gone" extra_replicas_gone
 
-# Delete only PVCs whose pod no longer exists (orphans left by the scale-down).
+# Delete only the PVCs this test created and whose pod is gone.
 for pvc in $(oc -n "$NS" get pvc -o name 2>/dev/null | sed 's|.*/||' | grep '^pgdata-postgresql-'); do
+  case "$PVC_BEFORE" in *"$pvc"*) continue ;; esac
   ord="${pvc##*-}"
   if ! oc -n "$NS" get pod "postgresql-$ord" >/dev/null 2>&1; then
     oc -n "$NS" delete pvc "$pvc" --ignore-not-found >/dev/null 2>&1 || true

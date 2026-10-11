@@ -6,53 +6,64 @@ ConfigMap decides which pod is primary, so a failover is changing a value and
 recreating pods.
 
 ```mermaid
-flowchart LR
-  client["app / clients"]
+flowchart TB
+  app(["app / clients"])
 
-  rw["postgresql-rw"]
-  r["postgresql-r"]
-  ro["postgresql-ro"]
-  hl["postgresql-hl<br/>per-pod DNS"]
+  subgraph services["Services"]
+    rw["postgresql-rw<br/>primary"]
+    r["postgresql-r<br/>every Ready pod"]
+    ro["postgresql-ro<br/>one replica"]
+  end
 
-  p0["postgresql-0<br/>PRIMARY"]
-  p1["postgresql-1<br/>HOT STANDBY"]
+  subgraph db["StatefulSet postgresql"]
+    p0[("postgresql-0<br/>PRIMARY")]
+    p1[("postgresql-1<br/>HOT STANDBY")]
+    p2[("postgresql-2+<br/>read replicas")]
+  end
 
-  client -->|writes| rw --> p0
-  client -->|reads, load-balanced| r --> p0
+  hl["postgresql-hl<br/>headless, per-pod DNS"]
+
+  app -->|writes| rw --> p0
+  app -->|reads, balanced| r --> p0
   r --> p1
-  client -->|reads, replica only| ro --> p1
-  p0 -.->|WAL streaming| p1
-  p0 --- hl
-  p1 --- hl
+  r --> p2
+  app -->|reads, replica| ro --> p1
 
-  backup["CronJob postgresql-backup<br/>pg_dump"] --> rw
-  failover["CronJob postgresql-failover<br/>promotes on failure"] -.-> p1
-  hpa["HPA postgresql-read<br/>adds replicas"] -.-> p1
+  p0 -.->|WAL streaming| p1
+  p0 -.-> p2
+  p0 -.- hl
+  p1 -.- hl
+  p2 -.- hl
+
+  backup["CronJob postgresql-backup"] -->|pg_dump via -rw| rw
+  backup --> dump[("PVC postgresql-backups")]
+  failover["CronJob postgresql-failover"] -.->|promotes 0 or 1| p1
+  hpa["HPA postgresql-read"] -.->|adds replicas 2+| p2
 ```
 
 `postgresql-rw` carries writes to the primary. `postgresql-r` spreads reads over
-**every** Ready instance (so it scales when the read HPA adds replicas).
-`postgresql-ro` sends reads to a single replica, to keep them off the primary.
-`postgresql-hl` is headless DNS, used by replication.
+every Ready pod (primary and all replicas). `postgresql-ro` pins one replica.
+Replication is WAL streaming, and `postgresql-hl` gives each pod a stable DNS name
+so a replica can find the primary. Each pod keeps its data on its own
+`pgdata-postgresql-N` PVC.
 
 ## Why it exists
 
-One PostgreSQL server is a single point of failure with one server's worth of
-reads. PostgreSQL ships the mechanism to fix that — **streaming replication**, in
-which the primary streams its WAL to a hot standby that stays online and answers
-read-only queries. What it does *not* do is decide when to promote the standby,
-keep the replication config current, or repoint clients; that part is the work:
+One PostgreSQL server is a single point of failure and one server's worth of
+reads. PostgreSQL ships the fix: **streaming replication**, where the primary
+streams its WAL to a hot standby that answers read-only queries. What it does not
+do is decide when to promote the standby, keep `primary_conninfo` current, or
+repoint clients. Those steps are the work:
 
-| Approach | What is still on you |
+| Approach | Still on you |
 |---|---|
-| PostgreSQL on two hosts, wired by hand | create the standby, keep `primary_conninfo` current, promote on failure, re-seed the old primary when it returns, repoint clients |
+| PostgreSQL on two hosts | build the standby, promote on failure, re-seed the old primary when it returns, repoint clients |
 | PostgreSQL on Kubernetes | pods restart and reschedule, but it does not configure replication, pick the primary, or repoint the Services |
-| A dedicated HA stack (CloudNativePG, Crunchy PGO, Patroni) | more automation, but another distributed system or CRD stack to run |
+| An HA stack (CloudNativePG, Patroni, ...) | more automation, and another system to run |
 
-This project is the middle path: PostgreSQL's own replication on plain Kubernetes
-objects. A ConfigMap holds the role, the entrypoint configures each pod for it (no
-per-server setup), reads scale through `postgresql-r`, and failover is a script —
-not an operator.
+This repo does those steps with PostgreSQL's own replication and plain objects: a
+ConfigMap holds the role, the entrypoint configures each pod for it, reads scale
+through `postgresql-r`, and failover is a script.
 
 ## How the primary is chosen
 
@@ -71,15 +82,14 @@ The entrypoint also brings `PGDATA` to the assigned role:
 | replica | primary | wipe and re-seed |
 | replica | standby | start and refresh `primary_conninfo` |
 
-So recovering a pod is "delete it and it fixes itself", and a failover is "change
-the role and recreate the pods".
+A failover is changing the role and recreating the pods; a pod that comes back
+with the wrong role re-seeds or promotes itself on startup.
 
 ## Quick start
 
-This is plain Kubernetes: no operator, nothing to bootstrap. Create the namespace
-and the credentials Secret (never in git), then apply the overlay. The primary
-runs `initdb` and the replica runs `pg_basebackup` on startup, so that is the
-whole install.
+Create the namespace and the credentials Secret (never in git), then apply the
+overlay. The primary runs `initdb` and the replica runs `pg_basebackup` on
+startup.
 
 ```bash
 git clone https://github.com/rarguello/plain-pg.git && cd plain-pg
@@ -97,19 +107,24 @@ oc -n plain-pg get pods          # wait for 2/2 Ready
 Manual failover only (no failover CronJob): apply `manifests/overlays/lab-manual`
 instead.
 
-`plain-pg` is just an example namespace: change `namespace:` in the overlay (and
-`NS` for the scripts) to deploy somewhere else.
+`oc apply -k` is for a fresh install. Re-applying it after a failover or an HPA
+scale resets `PRIMARY_POD`, the `-rw`/`-ro` selectors and `spec.replicas`; on a
+live cluster use `scripts/deploy.sh`, which skips those fields, or patch the
+object directly.
+
+`plain-pg` is only the example namespace: change `metadata.name` in
+`manifests/base/namespace.yaml`, the `namespace:` field in each overlay, and `NS`
+in the scripts to deploy elsewhere.
 
 The `scripts/` are for the test suite and day-2 operations, not the install:
-`deploy.sh` re-applies the overlay without reverting a failover, and
-`verify-replication.sh`, `failover-manual.sh`, `backup-now.sh`, `reseed-replica.sh`
-do what their names say. Tear down with `./scripts/teardown.sh` (keeps the
-namespace) or `--all`. There is a `Makefile`: `make deploy`, `verify`, `lint`,
-`test-quick`, `test`.
+`deploy.sh` re-applies the overlay without reverting a failover;
+`verify-replication.sh`, `failover-manual.sh`, `backup-now.sh` and
+`reseed-replica.sh` are the day-2 helpers. Tear down with `./scripts/teardown.sh`
+(keeps the namespace) or `--all`. `make deploy|verify|lint|test-quick|test`.
 
 ## Limits
 
-Read this before trusting it with data that matters.
+Known limitations:
 
 | Limit | Consequence |
 |---|---|
@@ -117,9 +132,6 @@ Read this before trusting it with data that matters.
 | Replication is asynchronous | a failover can lose the last unreplicated transactions |
 | Backups are logical (`pg_dump`), no WAL archiving | no point-in-time recovery; the copies live in the cluster |
 | No operator, no consensus | failover is manual or a best-effort CronJob, not automatic HA |
-
-If you need automatic failover you can trust under node partitions, or PITR, use
-an operator (CloudNativePG, Crunchy, Zalando) or Patroni instead of this.
 
 ## Tests
 

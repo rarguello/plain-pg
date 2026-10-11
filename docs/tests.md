@@ -11,7 +11,7 @@ The suite runs against a real cluster; there are no mocks. Each test prints
 
 ## Coverage
 
-Every check, with the outcome of the last full run against a real cluster:
+Coverage, with the outcome of the last full run against a real cluster:
 
 **23/23 tests · 233 checks · 0 failures**
 
@@ -25,7 +25,7 @@ Every check, with the outcome of the last full run against a real cluster:
 | `t06_persistence` | Restarting either pod keeps the data and resumes replication | 11 | PASS |
 | `t07_failover_manual` | A manual failover and failback move the role, the Services and the data | 18 | PASS |
 | `t08_failover_auto` | The CronJob detects a dead primary and promotes a replica on its own | 12 | PASS |
-| `t09_idempotency` | Re-applying the manifests changes nothing (safe to repeat) | 4 | PASS |
+| `t09_idempotency` | Re-applying the manifests changes no object | 4 | PASS |
 | `t10_security` | Runs non-root, PodSecurity `restricted`, minimal RBAC, no secrets in git | 16 | PASS |
 | `t11_teardown` | Teardown removes everything and a redeploy comes back healthy | 11 | PASS |
 | `t12_backup` | A backup restores into a new database and the data checks out | 11 | PASS |
@@ -35,8 +35,8 @@ Every check, with the outcome of the last full run against a real cluster:
 | `t16_failover_load` | Failover under active writes: existing rows survive, loss is only a suffix | 9 | PASS |
 | `t17_auto_off` | `AUTO_FAILOVER=false` really disables automatic failover | 4 | PASS |
 | `t18_image` | The pinned digest matches the registry and the running pods | 7 | PASS |
-| `t19_selectors` | Auxiliary pods never leak into the database Services | 8 | PASS |
-| `t20_full_restart` | Both pods restart after a failover without a deadlock or split-brain | 9 | PASS |
+| `t19_selectors` | Auxiliary pods do not appear in the database Services | 8 | PASS |
+| `t20_full_restart` | Both pods restart after a failover and keep the correct roles | 9 | PASS |
 | `t21_pg_security` | The app user cannot do DDL/superuser work; remote access needs the password | 7 | PASS |
 | `t22_read_balancing` | Reads through `-r` spread over all instances and return the same data | 4 | PASS |
 | `t23_hpa` | Under load the HPA grows the fleet and the new replica serves reads | 11 | PASS |
@@ -46,7 +46,8 @@ the cluster but leave it consistent. `t11` deletes the PVCs and redeploys from
 scratch. `t23` waits for real HPA decisions and only runs from a fresh two-pod lab
 with `postgresql-0` as primary and no HPA; otherwise it **skips**. Tests that need
 `skopeo` and a pull secret (`t18`) also skip when it is missing. A `SKIP` is not a
-pass — read the summary, not just the exit code.
+pass — read the summary, not just the exit code. `t19` covers the two CronJob pod
+templates, not every Job the scripts create.
 
 ## Requirements and static checks
 

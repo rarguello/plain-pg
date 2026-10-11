@@ -43,5 +43,5 @@ serving reads on its own.
 | The HPA scales down by removing the highest ordinals | only `postgresql-0`/`-1` can be primary; higher ordinals are read-only and disposable |
 | An HPA owns `replicas` | do not scale by hand; `reseed-replica.sh` refuses while the HPA exists |
 | Scale-up is not instant | each new replica does a full `pg_basebackup`, costing I/O on the primary (`maxReplicas: 5`) |
-| Scale-down leaves the removed PVC orphaned | delete it: `oc delete pvc pgdata-postgresql-N` |
+| Scale-down leaves the removed PVC orphaned | delete it: `oc -n plain-pg delete pvc pgdata-postgresql-N` |
 | The primary is part of `-r` | it also serves some reads, so reads are not fully offloaded |

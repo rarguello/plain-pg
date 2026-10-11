@@ -1,32 +1,14 @@
 ###############################################################################
 # configmap-scripts.yaml
 #
-# Scripts that govern the startup of each pod in the StatefulSet.
+# Startup scripts for each pod. The sclorg image already knows how to do
+# replication (run-postgresql / run-postgresql-slave, ENABLE_REPLICATION); we
+# reuse its helpers and only decide the role from the postgresql-role ConfigMap:
+# the pod whose name == PRIMARY_POD starts as primary, the rest as replicas, and
+# each pod re-seeds or promotes itself if its PGDATA does not match that role.
 #
-# Core idea: Red Hat's sclorg image ALREADY knows how to do replication
-# (`run-postgresql` for the primary, `run-postgresql-slave` for the replica,
-# `ENABLE_REPLICATION=true`, hooks in `postgresql-start`). Instead of
-# reimplementing initdb/pg_basebackup by hand, we reuse its helpers
-# (`common.sh`) and only decide WHICH role each pod gets according to the
-# ConfigMap `postgresql-role`.
-#
-#   - The pod whose name == PRIMARY_POD starts as PRIMARY.
-#   - Any other pod starts as REPLICA (hot standby).
-#
-# The pod "self-corrects": if its PGDATA is not consistent with the role it
-# gets, it re-seeds it (pg_basebackup) or promotes it. That is what enables
-# manual (and automatic) failover without operators.
-#
-# IMPORTANT DETAIL (why the primary and the replica use different paths):
-#   `run-postgresql` starts the server temporarily and sources the image hooks
-#   (`start/set_passwords.sh`), which run `ALTER USER` -> on a replica
-#   (read-only) that fails and would abort startup. That is why the replica does
-#   NOT use `run-postgresql`: it replicates the end of `run-postgresql-slave`
-#   and runs `exec postgres` directly.
-#
-# ConfigMap keys:
-#   configure-and-run.sh  -> main container entrypoint
-#   healthcheck.sh        -> readiness/liveness probes
+# Non-obvious: the replica does NOT use run-postgresql -- its hooks run
+# ALTER USER, which fails on a read-only standby -- so it runs `exec postgres`.
 ###############################################################################
 
 apiVersion: v1

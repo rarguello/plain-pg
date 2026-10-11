@@ -1,30 +1,10 @@
 ###############################################################################
 # services.yaml
 #
-# Four Services:
-#
-#   postgresql-hl  Headless (clusterIP: None). Gives stable per-pod DNS:
-#                  postgresql-0.postgresql-hl.<ns>.svc.cluster.local
-#                  postgresql-1.postgresql-hl.<ns>.svc.cluster.local
-#                This is how a replica finds the primary by name, no matter
-#                which node it runs on. Required by the StatefulSet.
-#
-#   postgresql-rw  ClusterIP for READ/WRITE. Selects only the pod that is the
-#                primary (via the statefulset.kubernetes.io/pod-name label that
-#                Kubernetes sets automatically). Applications point here.
-#
-#   postgresql-r   ClusterIP for READS, load-balanced across ALL Ready instances
-#                (primary + replicas). Balances per TCP connection, not per
-#                query. It needs no repointing after a failover: it always
-#                selects every DB pod.
-#
-#   postgresql-ro  ClusterIP for READS against the replica(s) only.
-#
-# FAILOVER NOTE: -rw and -ro select by pod name, not by role, so promoting a
-# replica requires repointing them (scripts/failover-manual.sh and the
-# automatic failover CronJob do it). -r and -hl never need repointing.
-# With more than one replica, add each replica's pod name to the -ro selector
-# (or use -r, which covers them all).
+# Four Services. -rw and -ro select by pod name (not by role), so a failover
+# repoints them (scripts/failover-manual.sh and the automatic CronJob do it).
+# -r selects every Ready instance and never needs repointing. -ro pins exactly
+# one replica, so with more than one replica use -r (or add the extra names).
 ###############################################################################
 
 # --- Headless: stable DNS between pods ---
@@ -62,10 +42,6 @@ metadata:
     app.kubernetes.io/instance: postgresql
     app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: primary
-  annotations:
-    plain-pg/description: >-
-      Points only at the primary pod. Use it for read/write.
-      On failover, repoint it with scripts/failover-manual.sh.
 spec:
   selector:
     app.kubernetes.io/name: postgresql
@@ -88,11 +64,6 @@ metadata:
     app.kubernetes.io/instance: postgresql
     app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: read
-  annotations:
-    plain-pg/description: >-
-      Reads load-balanced across all Ready instances (primary + replicas).
-      Balances per connection. Do NOT send writes here: they would land on a
-      random instance (use postgresql-rw for writes).
 spec:
   selector:
     app.kubernetes.io/name: postgresql
@@ -114,10 +85,6 @@ metadata:
     app.kubernetes.io/instance: postgresql
     app.kubernetes.io/part-of: plain-pg
     app.kubernetes.io/component: replica
-  annotations:
-    plain-pg/description: >-
-      Points at the replica (hot standby). Serves real-time reads without
-      touching the primary.
 spec:
   selector:
     app.kubernetes.io/name: postgresql

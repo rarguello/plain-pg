@@ -2,8 +2,11 @@
 # networkpolicy.yaml
 #
 # INGRESS-only policy (egress is not restricted, to avoid breaking DNS or
-# access to the API server). It allows any pod in the namespace to talk to
-# PostgreSQL on 5432, and nothing else from outside the namespace.
+# access to the API server). It allows any pod in the namespace to reach
+# PostgreSQL on 5432 -- clients (apps, debug psql), replication between the DB
+# pods, and the backup/failover Jobs. NetworkPolicies are additive, so this does
+# not isolate the pods from each other; it only limits traffic from outside the
+# namespace.
 #
 # kubelet probes are not affected by NetworkPolicy.
 ###############################################################################
@@ -25,18 +28,9 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Clients inside the namespace (apps, the failover CronJob, debug psql).
+    # Any pod in the namespace, on 5432: clients, replication and the Jobs.
     - from:
         - podSelector: {}
-      ports:
-        - protocol: TCP
-          port: 5432
-    # Replication between the PostgreSQL pods themselves.
-    - from:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: postgresql
-              app.kubernetes.io/instance: postgresql
       ports:
         - protocol: TCP
           port: 5432

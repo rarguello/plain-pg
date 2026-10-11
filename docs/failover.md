@@ -65,9 +65,9 @@ Read these before relying on automatic failover.
 | Replication is asynchronous | a failover can lose the last unreplicated transactions; the loss is not bounded by the design | accept it, or enable synchronous replication (out of scope here) |
 | Detection is by timeout, not consensus | a slow primary can be declared down too early | keep `FAILOVER_GRACE_SECONDS` conservative (120–300 s) |
 | A pod restarts between declaring the new role and finishing fencing | the candidate can promote, or the ex-primary can wipe and re-seed its PGDATA, before isolation is confirmed | not guarded: a spontaneous restart can hit this window, so verify a single primary after any failover |
-| Promotion does not check the replay position | a reachable but stale standby can be promoted | fail over by hand when you need a bounded loss |
+| Promotion does not check the replay position | a reachable but stale standby can be promoted | check the standby's replay position by hand before promoting if the loss must be bounded |
+| Manual, automatic and `oc apply -k` are not mutually exclusive | interleaved writes to the role and the Services can clobber each other (only the ConfigMap patch uses `resourceVersion`) | run one operator at a time: no manual failover during a deploy or while the CronJob is acting |
 | The promotion fails | the declared state stays on the candidate; the ex-primary is isolated | finish it (`oc -n plain-pg delete pod <candidate>`) or roll back explicitly |
 
-Fencing is **not STONITH**: it verifies the Kubernetes pod object (it disappeared
-or changed UID), not that the PostgreSQL process died. There is no external
-fencing of the node, so this is a lab-grade guarantee.
+Fencing is **not STONITH**: it verifies the Kubernetes pod object, not that the
+PostgreSQL process died, so it is a lab-grade guarantee.

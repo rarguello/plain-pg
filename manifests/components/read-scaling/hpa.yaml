@@ -1,23 +1,10 @@
 ###############################################################################
 # hpa.yaml
 #
-# Scales the StatefulSet with the number of readers. Combined with the
-# postgresql-r Service (which selects every Ready instance), a new replica starts
-# receiving read traffic as soon as it is Ready -- no Service change needed.
-#
-# How to read it:
-#   - averageUtilization is measured against the CPU *request* of the pods
-#     (100m in base/statefulset.yaml). At 70%, a replica using ~70m triggers a
-#     scale-up.
-#   - minReplicas must be >= 2: one primary + at least one replica.
-#   - maxReplicas bounds the fleet. Every new replica does a full
-#     pg_basebackup, so raising this too high has a cost.
-#
-# CAVEATS (see docs/scaling.md):
-#   - While an HPA owns `replicas`, do NOT scale the StatefulSet by hand: the
-#     HPA will override it.
-#   - Scaling down leaves the removed replica's PVC orphaned (delete it).
-#   - Scaling up is not instant: the new pod has to seed from the primary.
+# Scales the read fleet on CPU. Utilization is measured against the pod CPU
+# request (100m), so 70% means a replica using ~70m scales up. minReplicas must
+# be >= 2 (one primary + one replica); maxReplicas bounds how many pg_basebackup
+# seeds run at once. Caveats: docs/scaling.md.
 ###############################################################################
 
 apiVersion: autoscaling/v2

@@ -57,6 +57,9 @@ spec:
         app.kubernetes.io/component: database
     spec:
       terminationGracePeriodSeconds: 120
+      # The pods never call the API server (the namespace comes from the
+      # downward API), so they do not need a ServiceAccount token.
+      automountServiceAccountToken: false
 
       # Satisfies PodSecurity "restricted" and OpenShift's restricted-v2 SCC.
       # fsGroup is NOT set: OpenShift assigns one from the namespace range and
