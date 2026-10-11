@@ -46,11 +46,13 @@ cambiar un valor y recrear pods — no hace falta un controlador.
   Ver [docs/comparacion.md](docs/comparacion.md).
 - **No es PITR.** Los backups son lógicos (dumps), no hay archivado de WAL.
 - **El failover automático no es HA de nivel producción.** Hace *fencing*
-  verificable a nivel de pod (borra el ex-primary y confirma que terminó) antes
-  de promover, pero no es STONITH: si el nodo se parte del API server puede dar
-  un falso positivo. La replicación es asíncrona, así que un failover puede
-  perder las últimas transacciones no replicadas. Leé
-  [docs/failover.md](docs/failover.md) antes de usarlo en producción.
+  verificable a nivel de **pod** (borra el ex-primary y confirma que terminó)
+  antes de promover, pero no es STONITH: si el *nodo* se parte del API server,
+  el pod puede desaparecer mientras el proceso sigue vivo y quedarían dos
+  primaries. Para una garantía real hace falta fencing del nodo. Además la
+  replicación es asíncrona, así que un failover puede perder las últimas
+  transacciones no replicadas. Leé [docs/failover.md](docs/failover.md) antes de
+  usarlo en producción.
 - **No resuelve la elección de líder** (quórum/consenso). El "primary" es el que
   dice el ConfigMap.
 

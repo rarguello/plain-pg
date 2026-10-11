@@ -79,6 +79,11 @@ restore_state() {   # $1 = primary, $2 = replica
     echo "CRITICO: estado inconsistente tras revertir (CM=$cm rw=$rw ro=$ro)" >&2
     return 1
   fi
+  # El rol real de PostgreSQL tambien debe estar bien.
+  if [ "$(pod_in_recovery "$1")" != "f" ]; then
+    echo "CRITICO: tras revertir, $1 NO responde como primary. Intervencion requerida." >&2
+    return 1
+  fi
   return 0
 }
 pod_state() {   # "gone" | "uid:<uid>" | "error:<msg>"
@@ -90,7 +95,7 @@ pod_state() {   # "gone" | "uid:<uid>" | "error:<msg>"
     *) printf 'error:%s' "$out" ;;
   esac
 }
-fence_pod() {
+fence_pod() {   # 0 = aislado; 1 = sin cambios (seguro revertir); 2 = borrado aceptado, sin confirmar
   local pod="$1" state uid t=0
   state="$(pod_state "$pod")"
   case "$state" in
@@ -99,19 +104,22 @@ fence_pod() {
     uid:*)   uid="${state#uid:}" ;;
   esac
   echo "      borrando $pod (uid ${uid:0:8}) y esperando su terminacion"
-  oc -n "$NS" delete pod "$pod" --wait=false >/dev/null
+  if ! oc -n "$NS" delete pod "$pod" --wait=false >/dev/null; then
+    echo "ERROR: no pude borrar $pod (sin cambios)" >&2; return 1
+  fi
   while [ "$t" -lt "$FENCE_TIMEOUT" ]; do
     sleep 3; t=$((t + 3))
     state="$(pod_state "$pod")"
     case "$state" in
       gone)    echo "      $pod desaparecio"; return 0 ;;
-      error:*) echo "ERROR: no pude consultar $pod ($state)" >&2; return 1 ;;
+      error:*) echo "ERROR: no pude confirmar la terminacion de $pod ($state)" >&2; return 2 ;;
       uid:*)   if [ "${state#uid:}" != "$uid" ]; then
                  echo "      $pod recreado (uid nuevo)"; return 0
                fi ;;
     esac
   done
-  return 1
+  echo "ERROR: $pod no se termino en ${FENCE_TIMEOUT}s (borrado ya aceptado)" >&2
+  return 2
 }
 
 # --- 1) Evitar que el failover automatico interfiera -----------------------
@@ -138,9 +146,15 @@ if ! set_services "$CANDIDATE" "$OLD"; then
 fi
 
 echo "[3/5] Fencing del ex-primary $OLD"
-if ! fence_pod "$OLD"; then
-  echo "ERROR: no se pudo confirmar el aislamiento de $OLD; REVIRTIENDO" >&2
+FRC=0
+fence_pod "$OLD" || FRC=$?
+if [ "$FRC" -eq 1 ]; then
+  echo "ERROR: no se pudo confirmar el aislamiento de $OLD (sin cambios); REVIRTIENDO" >&2
   restore_state "$OLD" "$CANDIDATE" || echo "CRITICO: reversion inconsistente" >&2
+  exit 1
+elif [ "$FRC" -eq 2 ]; then
+  echo "CRITICO: el borrado de $OLD fue aceptado pero no se pudo confirmar su terminacion." >&2
+  echo "CRITICO: NO se revierte (el pod pudo recrearse como replica). Intervencion requerida." >&2
   exit 1
 fi
 

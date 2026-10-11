@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# t16 -- Failover con carga: los datos confirmados ANTES del failover
-#        sobreviven, lo perdido por la ventana asincrona es un unico intervalo
-#        contiguo (sin divergencia dispersa), y al terminar hay un solo primary.
+# t16 -- Failover con carga.
 #
-# El escritor usa ids explicitos (1000..1299) e imprime "OK <id>" por cada
-# commit confirmado. Se comprueba id por id su presencia en el nuevo primary.
-# Con replicacion asincrona un failover puede perder las ultimas transacciones
-# no replicadas: lo que se exige es que la perdida sea contigua (una foto
-# consistente), no cero.
+#   - Los datos confirmados ANTES del failover sobreviven.
+#   - Lo que se pierde de esos datos es un SUFIJO contiguo (la replica iba
+#     atras por un tramo final), no un conjunto disperso: eso probaria
+#     divergencia, no replicacion asincrona.
+#   - Al terminar hay exactamente un primary.
+#
+# El escritor usa ids explicitos (1000..1299) e imprime "OK <id> <epoch>" por
+# cada commit confirmado. El corte es el instante en que ARRANCA el failover:
+# lo confirmado antes de ese instante seguro lo escribio el primary anterior.
 source "$(dirname "${BASH_SOURCE[0]}")/lib-test.sh"
 load_credentials
 
@@ -58,7 +60,7 @@ spec:
             - |
               for i in \$(seq 1000 1299); do
                 if psql -q -c "INSERT INTO t_load_fo(id, v) VALUES (\$i, 'w-\$i') ON CONFLICT (id) DO NOTHING" >/dev/null 2>&1; then
-                  echo "OK \$i"
+                  echo "OK \$i \$(date +%s)"
                 fi
                 sleep 0.2
               done
@@ -85,6 +87,7 @@ EOF
 sleep 6   # deja escribir unas filas antes de la caida
 
 echo "  (failover con el escritor activo)"
+TS_FENCE="$(date +%s)"
 FORCE=1 "$ROOT_DIR/scripts/failover-manual.sh" "$REPLICA" >/dev/null 2>&1 || c_fail "el failover fallo"
 
 is_primary() { [ "$(pod_in_recovery "$1")" = "f" ]; }
@@ -94,28 +97,38 @@ wait_for 300 "$REPLICA es primary" is_primary "$REPLICA"
 KEPT="$(pod_psql "$REPLICA" -tAc "SELECT count(*) FROM t_load_fo WHERE id <= $PRE_MAX" 2>/dev/null || echo 0)"
 check_eq "los $PRE_MAX registros previos sobrevivieron" "$PRE_MAX" "${KEPT:-0}"
 
-# Esperar al escritor y comparar id por id
 echo "  (esperando al escritor)"
 oc -n "$NS" wait --for=condition=complete "job/$WRITER" --timeout=240s >/dev/null 2>&1 || true
 WLOG="$(oc -n "$NS" logs "job/$WRITER" 2>/dev/null || true)"
-ACKED="$(printf '%s\n' "$WLOG" | grep -oE '^OK [0-9]+' | awk '{print $2}' | sort | uniq)"
-PRESENT="$(pod_psql "$REPLICA" -tAc "SELECT id FROM t_load_fo WHERE id >= 1000 ORDER BY id" 2>/dev/null | sort | uniq)"
-MISSING="$(comm -23 <(printf '%s\n' "$ACKED") <(printf '%s\n' "$PRESENT"))"
 
-N_ACKED="$(printf '%s\n' "$ACKED"   | grep -cE '^[0-9]+$' || true)"
-N_PRESENT="$(printf '%s\n' "$PRESENT" | grep -cE '^[0-9]+$' || true)"
-N_MISSING="$(printf '%s\n' "$MISSING" | grep -cE '^[0-9]+$' || true)"
-echo "  commits confirmados: $N_ACKED | presentes en el nuevo primary: $N_PRESENT | perdidos: $N_MISSING"
+# "OK <id> <epoch>": separo lo confirmado ANTES de que arranque el failover
+# (seguro del primary anterior) de lo demas.
+ack_before() { printf '%s\n' "$WLOG" | awk -v ts="$TS_FENCE" \
+                 '$1=="OK" && $3+0 < ts+0 {print $2}' | sort | uniq; }
+ack_after()  { printf '%s\n' "$WLOG" | awk -v ts="$TS_FENCE" \
+                 '$1=="OK" && $3+0 >= ts+0 {print $2}' | sort | uniq; }
+ACKED_PRE="$(ack_before)"
+ACKED_POST="$(ack_after)"
+PRESENT="$(pod_psql "$REPLICA" -tAc "SELECT id FROM t_load_fo WHERE id >= 1000 ORDER BY id" \
+          2>/dev/null | sort | uniq)"
+MISSING="$(comm -23 <(printf '%s\n' "$ACKED_PRE") <(printf '%s\n' "$PRESENT"))"
 
-# La perdida debe ser un unico intervalo contiguo (una foto consistente),
-# no un conjunto disperso (eso indicaria divergencia).
-missing_contiguous() {
-  printf '%s\n' "$MISSING" | awk '
-    NF { if (prev != "" && $1 != prev + 1) bad = 1; prev = $1 }
-    END { exit bad ? 1 : 0 }'
+N_PRE="$(printf '%s\n' "$ACKED_PRE"  | grep -cE '^[0-9]+$' || true)"
+N_POST="$(printf '%s\n' "$ACKED_POST" | grep -cE '^[0-9]+$' || true)"
+N_MISS="$(printf '%s\n' "$MISSING"   | grep -cE '^[0-9]+$' || true)"
+echo "  confirmados antes del failover: $N_PRE | despues: $N_POST | perdidos: $N_MISS"
+
+# Lo perdido debe ser un sufijo contiguo de lo confirmado antes del failover.
+missing_is_suffix() {
+  local first_missing tail_count
+  first_missing="$(printf '%s\n' "$MISSING" | grep -E '^[0-9]+$' | sort -n | head -1)"
+  [ -z "$first_missing" ] && return 0
+  tail_count="$(printf '%s\n' "$ACKED_PRE" | grep -E '^[0-9]+$' \
+                | awk -v m="$first_missing" '$1+0 >= m+0' | wc -l)"
+  [ "$tail_count" -eq "$N_MISS" ]
 }
-check "lo perdido es un unico intervalo contiguo (sin divergencia dispersa)" missing_contiguous
-check "no se perdio todo lo que se habia confirmado" bash -c "[ $N_MISSING -lt $N_ACKED ]"
+check "lo perdido es un sufijo contiguo (sin divergencia dispersa)" missing_is_suffix
+check "no se perdio todo lo confirmado antes del failover" bash -c "[ $N_MISS -lt $N_PRE ]"
 
 # Un solo primary en el cluster
 PRIMARIES=0

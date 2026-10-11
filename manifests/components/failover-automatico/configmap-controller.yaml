@@ -95,9 +95,13 @@ data:
 
     # Estado de un pod: "gone" (404), "uid:<uid>" (existe) o "error:<code>".
     # Distinguir 404 de un error real es critico para el fencing.
+    # OJO: api_raw se llama en ESTE shell (redirigiendo stdout a un archivo, no
+    # con $(...)), porque dentro de una command substitution API_CODE no vuelve.
     pod_state() {
-      local body
-      body="$(api_raw GET "/api/v1/namespaces/$NS/pods/$1" 2>/dev/null || true)"
+      local tmp body
+      tmp="$(mktemp)"
+      api_raw GET "/api/v1/namespaces/$NS/pods/$1" >"$tmp" 2>/dev/null || true
+      body="$(cat "$tmp")"; rm -f "$tmp"
       case "$API_CODE" in
         200) printf 'uid:%s' "$(json_field "$body" uid)" ;;
         404) printf 'gone' ;;
@@ -161,11 +165,19 @@ data:
         log "CRITICO: estado inconsistente tras revertir (CM=$cm rw=$rw ro=$ro)"
         return 1
       fi
+      # El rol real de PostgreSQL tambien debe estar bien.
+      if ! is_primary_ok "$1"; then
+        log "CRITICO: tras revertir, $1 NO responde como primary. Intervencion requerida."
+        return 1
+      fi
       return 0
     }
 
     # --- Fencing verificable ----------------------------------------------
-    fence_pod() {   # borra el pod y espera a que desaparezca o cambie de UID
+    # Devuelve: 0 = aislado y confirmado; 1 = no aislado y SIN cambios (seguro
+    # revertir); 2 = el borrado fue aceptado pero no se pudo confirmar (NO
+    # revertir automaticamente: el ex-primary pudo recrearse como replica).
+    fence_pod() {
       local pod="$1" state uid t=0
       state="$(pod_state "$pod")"
       case "$state" in
@@ -174,20 +186,23 @@ data:
         uid:*)   uid="${state#uid:}" ;;
       esac
       log "fence: borrando $pod (uid=${uid:0:8})"
-      delete_pod "$pod" || return 1
+      if ! delete_pod "$pod"; then
+        log "ERROR: fence: no pude borrar $pod (sin cambios)"; return 1
+      fi
       while [ "$t" -lt "$FENCE_TIMEOUT" ]; do
         sleep 5; t=$((t + 5))
         state="$(pod_state "$pod")"
         case "$state" in
           gone)    log "fence: $pod desaparecio"; return 0 ;;
-          error:*) log "ERROR: fence: no pude consultar $pod ($state)"; return 1 ;;
+          error:*) log "ERROR: fence: no pude confirmar la terminacion de $pod ($state)"
+                   return 2 ;;
           uid:*)   if [ "${state#uid:}" != "$uid" ]; then
                      log "fence: $pod recreado (uid nuevo)"; return 0
                    fi ;;
         esac
       done
-      log "ERROR: fence: $pod no se termino en ${FENCE_TIMEOUT}s"
-      return 1
+      log "ERROR: fence: $pod no se termino en ${FENCE_TIMEOUT}s (borrado ya aceptado)"
+      return 2
     }
 
     pick_candidate() {   # $1 = ex-primary
@@ -255,11 +270,16 @@ data:
           log "CRITICO: la reversion no quedo consistente; intervencion requerida"
         return 1
       fi
-      # 3) Fencing del ex-primary. Si no se puede confirmar, se revierte TODO.
-      if ! fence_pod "$primary"; then
-        log "ERROR: no se pudo aislar $primary; REVIRTIENDO"
+      # 3) Fencing del ex-primary.
+      fence_pod "$primary"; local frc=$?
+      if [ "$frc" -eq 1 ]; then
+        log "ERROR: no se pudo aislar $primary (sin cambios); REVIRTIENDO"
         restore_state "$primary" "$candidate" || \
           log "CRITICO: la reversion no quedo consistente; intervencion requerida"
+        return 1
+      elif [ "$frc" -eq 2 ]; then
+        log "CRITICO: el borrado de $primary fue aceptado pero NO se pudo confirmar su terminacion."
+        log "CRITICO: NO se revierte automaticamente (el pod pudo recrearse como replica). Intervencion requerida."
         return 1
       fi
       # 4) Promover el candidato.

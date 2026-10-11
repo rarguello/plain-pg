@@ -94,12 +94,24 @@ mantenimiento). El overlay `lab-manual` no lo incluye.
 
 ### Qué NO hace (leer antes de producción)
 
-- **El fencing no es STONITH.** Se basa en que Kubernetes confirme la
-  terminación del pod (cambio de UID). Si el **nodo** del ex-primary queda
-  particionado del API server, el objeto del pod puede desaparecer al vencer el
-  grace period aunque el contenedor siga vivo, y el fencing daría un falso
-  positivo. Para producción, combinarlo con aislamiento a nivel de nodo
-  (`MachineHealthCheck`, `fence_ack`, etc.).
+- **El fencing no es STONITH: no garantiza que el proceso viejo esté muerto.**
+  Se basa en que Kubernetes confirme la terminación del pod (el objeto
+  desaparece o cambia de UID). Si el **nodo** del ex-primary queda particionado
+  del API server, el objeto del pod puede desaparecer al vencer el grace period
+  aunque el contenedor siga ejecutándose: el fencing daría un falso positivo y
+  podrían quedar dos primaries (split-brain).
+
+  **Consecuencia práctica:** mientras no haya fencing externo del nodo, el
+  failover automático es aceptable para un laboratorio o para escenarios donde
+  la caída es del pod (no del nodo). Para producción con garantía real:
+  - habilitá aislamiento a nivel de nodo (por ejemplo `MachineHealthCheck` +
+    `fence_ack`, o el mecanismo del proveedor de infraestructura) antes de
+    confiar en el failover automático; o
+  - dejá `AUTO_FAILOVER=false` y operá el failover manual, donde una persona
+    puede verificar que el nodo/primary anterior está realmente fuera.
+
+  El repo **no** afirma aislamiento físico del primary anterior: sólo verifica
+  el pod.
 - **La replicación es asíncrona**: un failover puede perder las últimas
   transacciones que no llegaron a replicarse. Si eso no es aceptable, activá
   replicación sincrónica (ver abajo): el commit espera a la réplica, con el

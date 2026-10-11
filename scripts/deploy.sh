@@ -34,13 +34,23 @@ for arg in "$@"; do
   esac
 done
 
+# Lee el estado operativo actual en RP/RRW/RRO.
+read_state() {
+  RP="$(oc -n "$NS" get cm postgres-role -o jsonpath='{.data.PRIMARY_POD}' 2>/dev/null || true)"
+  RRW="$(oc -n "$NS" get svc postgres-rw -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null || true)"
+  RRO="$(oc -n "$NS" get svc postgres-ro -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null || true)"
+}
+
 echo "==> Render previo (kustomize)"
 oc kustomize "$OVERLAY" >/dev/null
 
-# --- Estado operativo actual ---
-CUR_PRIMARY="$(oc -n "$NS" get cm postgres-role -o jsonpath='{.data.PRIMARY_POD}' 2>/dev/null || true)"
-CUR_RW="$(oc -n "$NS" get svc postgres-rw -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null || true)"
-CUR_RO="$(oc -n "$NS" get svc postgres-ro -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null || true)"
+read_state
+CUR_PRIMARY="$RP"; CUR_RW="$RRW"; CUR_RO="$RRO"
+
+if [ -n "$CUR_PRIMARY" ] && { [ -z "$CUR_RW" ] || [ -z "$CUR_RO" ]; }; then
+  echo "ERROR: no pude leer los selectores de los Services; abortando." >&2
+  exit 1
+fi
 
 if [ "$RESET_ROLE" = "1" ] && [ -n "$CUR_PRIMARY" ] && [ "$CUR_PRIMARY" != "postgres-0" ]; then
   echo "ERROR: --reset-role devolveria el rol a postgres-0, pero el primary actual es $CUR_PRIMARY." >&2
@@ -78,6 +88,16 @@ with open(path, "w") as fh:
     yaml.safe_dump_all(docs, fh, default_flow_style=False, sort_keys=False,
                        width=10**9)
 PY
+
+  # Releer justo antes de aplicar: si un failover ocurrio mientras se preparaba
+  # el render, se aborta en vez de pisarlo.
+  read_state
+  if [ "$RP" != "$CUR_PRIMARY" ] || [ "$RRW" != "$CUR_RW" ] || [ "$RRO" != "$CUR_RO" ]; then
+    echo "ERROR: el estado de failover cambio mientras se preparaba el deploy; reintentar." >&2
+    rm -f "$TMP"
+    exit 1
+  fi
+
   echo "==> Aplicando $OVERLAY (con el rol preservado)"
   oc apply -f "$TMP"
   rm -f "$TMP"
