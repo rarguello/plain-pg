@@ -32,7 +32,7 @@ flowchart LR
 
 `postgresql-rw` carries writes to the primary. `postgresql-r` spreads reads over
 **every** Ready instance (so it scales when the read HPA adds replicas).
-`postgresql-ro` sends reads **only to the replica**, to keep them off the primary.
+`postgresql-ro` sends reads to a single replica, to keep them off the primary.
 `postgresql-hl` is headless DNS, used by replication.
 
 ## Why it exists

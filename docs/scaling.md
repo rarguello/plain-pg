@@ -7,11 +7,12 @@
 | `postgresql-hl` | Headless | every DB pod | per-pod DNS (used by replication) |
 | `postgresql-rw` | ClusterIP | the primary | writes and read-after-write |
 | `postgresql-r` | ClusterIP | every Ready instance | read scaling (load-balanced) |
-| `postgresql-ro` | ClusterIP | the replica | reads without touching the primary |
+| `postgresql-ro` | ClusterIP | one replica, by pod name | reads without touching the primary |
 
 `postgresql-r` needs no maintenance: it selects all DB pods, so after a failover
 or a scale-up it already points at the right set. `-rw`/`-ro` select by pod name
-and are repointed by the failover scripts.
+and are repointed by the failover scripts; `-ro` pins exactly **one** replica, so
+extra replicas (from the HPA or a manual scale) are reachable only through `-r`.
 
 `postgresql-r` balances **per TCP connection**, not per query: many short
 connections spread over the Ready pods, one long-lived connection stays on one
