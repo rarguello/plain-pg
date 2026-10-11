@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Markdown structure
-        uses: DavidAnson/markdownlint-cli2-action@v16
+        uses: DavidAnson/markdownlint-cli2-action@v24
 
       - name: Spelling
         run: |
