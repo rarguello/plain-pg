@@ -77,6 +77,20 @@ matchea nunca. El controlador de failover compacta la respuesta antes de parsear
 (`tr -d ' \n\r\t'`) y manda sus logs a **stderr** para no contaminar el cuerpo
 capturado en una command substitution.
 
+## Autenticación local vs remota
+
+`initdb` deja las conexiones **locales** (socket unix, 127.0.0.1, ::1) en
+`trust`, y la imagen agrega al final `host all all all md5` y
+`host replication all all md5`. Como pg_hba se evalúa de arriba hacia abajo:
+
+- desde **dentro del pod** (127.0.0.1) no hace falta password: equivale a tener
+  shell en el contenedor;
+- desde **otro pod** (IP del pod) la primera línea que matchea es
+  `host all all all md5`, así que la password es obligatoria.
+
+Si querés cerrar también el acceso local, cambiá esas líneas a `scram-sha-256`
+en `pg_hba.conf` (se puede hacer con un hook `postgresql-start`).
+
 ## Timeouts de conexión
 
 Contra un primary aislado por red, una conexión TCP sin timeout puede tardar
