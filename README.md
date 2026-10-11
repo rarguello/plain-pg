@@ -65,6 +65,15 @@ git clone https://github.com/<tu-usuario>/pg-ha.git && cd pg-ha
 ./scripts/verify-replication.sh  # verifica que la réplica está al día
 ```
 
+También hay `make`:
+
+```bash
+make deploy      # desplegar
+make verify      # verificar la replicación
+make lint        # shellcheck + kustomize + scripts embebidos
+make test-quick  # pruebas no destructivas
+```
+
 Si preferís solo replicación + failover manual (sin el CronJob de failover):
 
 ```bash
