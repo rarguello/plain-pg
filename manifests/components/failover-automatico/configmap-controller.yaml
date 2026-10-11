@@ -1,0 +1,148 @@
+###############################################################################
+# configmap-controller.yaml
+#
+# Script del failover automatico (lo ejecuta el CronJob). NO es un operador:
+# es un script que corre cada minuto y, si el primary declarado no responde,
+# promueve una replica sana cambiando el ConfigMap de rol y reapuntando los
+# Services.
+#
+# Secuencia (con rollback si la promocion falla):
+#   1. Si el primary responde -> nada que hacer.
+#   2. Si no responde, esperar FAILOVER_GRACE_SECONDS (por si es transitorio).
+#   3. Elegir una replica sana (pg_is_in_recovery() = t).
+#   4. Apuntar PRIMARY_POD y los Services al candidato.
+#   5. Borrar el pod del candidato -> al arrancar se promueve solo.
+#   6. Confirmar que el candidato es primary; si no, ROLLBACK.
+#   7. Borrar el pod del ex-primary -> se re-siembra como replica.
+#
+# LIMITACIONES (leer docs/05-failover-automatico.md):
+#   - No hay fencing de red real: si el ex-primary solo estaba "pausado" puede
+#     volver. Mitigado porque el rol lo decide el ConfigMap y el pod se
+#     re-siembra al arrancar.
+#   - Replicacion asincrona => se puede perder la ultima transaccion no
+#     replicada. Para failover sin perdida usar replicacion sincrona.
+###############################################################################
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-failover-scripts
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: postgres
+    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/component: failover
+data:
+  failover-controller.sh: |
+    #!/bin/bash
+    set -uo pipefail
+
+    log() { echo "[pg-failover][$(date -u +%FT%TZ)] $*"; }
+
+    SA=/var/run/secrets/kubernetes.io/serviceaccount
+    API="https://kubernetes.default.svc"
+    TOKEN="$(cat "$SA/token")"
+    CACERT="$SA/ca.crt"
+
+    NS="${POD_NAMESPACE:-$(cat "$SA/namespace" 2>/dev/null || echo default)}"
+    PRIMARY_POD="${PRIMARY_POD:-}"
+    AUTO_FAILOVER="${AUTO_FAILOVER:-false}"
+    GRACE="${FAILOVER_GRACE_SECONDS:-120}"
+    HL="${HL_SERVICE:-postgres-hl}"
+    PGPORT="${PGPORT:-5432}"
+    PROMOTE_TIMEOUT="${PROMOTE_TIMEOUT:-240}"
+
+    STS="${PRIMARY_POD%-*}"
+
+    api() {
+      local method="$1" path="$2"; shift 2
+      curl -sS --cacert "$CACERT" -H "Authorization: Bearer $TOKEN" \
+           -X "$method" "${API}${path}" "$@"
+    }
+    jsonpatch() { api PATCH "$1" -H 'Content-Type: application/merge-patch+json' -d "$2" >/dev/null; }
+    pod_fqdn() { echo "$1.${HL}.${NS}.svc.cluster.local"; }
+
+    pg_role() {   # 't' (en recovery) / 'f' (primary) / '' (inalcanzable)
+      PGPASSWORD="${POSTGRESQL_ADMIN_PASSWORD:-}" \
+        psql -h "$(pod_fqdn "$1")" -p "$PGPORT" -U postgres -d postgres \
+             -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null
+    }
+    is_primary_ok() { [ "$(pg_role "$1")" = "f" ]; }
+    is_standby_ok() { [ "$(pg_role "$1")" = "t" ]; }
+
+    list_pods() {
+      api GET "/api/v1/namespaces/${NS}/pods?labelSelector=app.kubernetes.io/name%3Dpostgresql,app.kubernetes.io/component%3Ddatabase" \
+        | grep -o "\"name\":\"${STS}-[0-9]*\"" \
+        | sed -e 's/.*:"//' -e 's/"$//' | sort -u
+    }
+
+    point_services() {   # $1 = pod primary, $2 = pod replica
+      jsonpatch "/api/v1/namespaces/${NS}/services/postgres-rw" \
+        "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$1\"}}}"
+      jsonpatch "/api/v1/namespaces/${NS}/services/postgres-ro" \
+        "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$2\"}}}"
+    }
+
+    delete_pod() { api DELETE "/api/v1/namespaces/${NS}/pods/$1" >/dev/null 2>&1 || true; }
+
+    main() {
+      if [ "$AUTO_FAILOVER" != "true" ]; then
+        log "auto-failover deshabilitado (AUTO_FAILOVER=$AUTO_FAILOVER)"; return 0
+      fi
+      if [ -z "$PRIMARY_POD" ]; then
+        log "ERROR: PRIMARY_POD vacio"; return 1
+      fi
+      log "primary declarado: $PRIMARY_POD"
+
+      if is_primary_ok "$PRIMARY_POD"; then
+        log "primary OK"; return 0
+      fi
+
+      log "primary no responde; esperando hasta ${GRACE}s antes de declararlo caido"
+      local deadline=$(( $(date +%s) + GRACE ))
+      while [ "$(date +%s)" -lt "$deadline" ]; do
+        sleep 10
+        if is_primary_ok "$PRIMARY_POD"; then log "primary se recupero; sin accion"; return 0; fi
+      done
+      log "primary $PRIMARY_POD declarado CAIDO"
+
+      local candidate=""
+      while read -r p; do
+        [ -z "$p" ] && continue
+        [ "$p" = "$PRIMARY_POD" ] && continue
+        if is_standby_ok "$p"; then candidate="$p"; break; fi
+      done < <(list_pods)
+
+      if [ -z "$candidate" ]; then
+        log "ERROR: no hay replica sana disponible; no se puede hacer failover"; return 1
+      fi
+      log "candidato elegido: $candidate"
+
+      log "FAILOVER: ${PRIMARY_POD} -> ${candidate}"
+      jsonpatch "/api/v1/namespaces/${NS}/configmaps/postgres-role" \
+        "{\"data\":{\"PRIMARY_POD\":\"${candidate}\"}}"
+      point_services "$candidate" "$PRIMARY_POD"
+
+      log "promoviendo $candidate (recreando el pod)"
+      delete_pod "$candidate"
+
+      local t=0
+      while [ "$t" -lt "$PROMOTE_TIMEOUT" ]; do
+        sleep 10; t=$((t + 10))
+        if is_primary_ok "$candidate"; then
+          log "$candidate confirmado como PRIMARY"
+          log "re-sembrando ex-primary $PRIMARY_POD (recreando el pod)"
+          delete_pod "$PRIMARY_POD"
+          log "FAILOVER OK: primary=${candidate} replica=${PRIMARY_POD}"
+          return 0
+        fi
+      done
+
+      log "ERROR: $candidate no promovio en ${PROMOTE_TIMEOUT}s -> ROLLBACK"
+      jsonpatch "/api/v1/namespaces/${NS}/configmaps/postgres-role" \
+        "{\"data\":{\"PRIMARY_POD\":\"${PRIMARY_POD}\"}}"
+      point_services "$PRIMARY_POD" "$candidate"
+      return 1
+    }
+
+    main

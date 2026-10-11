@@ -1,0 +1,217 @@
+###############################################################################
+# configmap-scripts.yaml
+#
+# Scripts que gobiernan el arranque de cada pod del StatefulSet.
+#
+# Idea central: la imagen sclorg de Red Hat YA sabe hacer replicación
+# (`run-postgresql` para el primary, `run-postgresql-slave` para la replica,
+# `ENABLE_REPLICATION=true`, hooks en `postgresql-start`). En vez de
+# reimplementar initdb/pg_basebackup a mano, reutilizamos sus helpers
+# (`common.sh`) y solo decidimos QUE rol le toca a cada pod segun el ConfigMap
+# `postgres-role`.
+#
+#   - El pod cuyo nombre == PRIMARY_POD arranca como PRIMARY.
+#   - Cualquier otro pod arranca como REPLICA (hot standby).
+#
+# El pod se "autocorrige": si su PGDATA no es coherente con el rol que le toca,
+# lo re-siembra (pg_basebackup) o lo promueve. Eso es lo que permite el failover
+# manual (y el automatico) sin operadores.
+#
+# DETALLE IMPORTANTE (por que el primary y la replica usan caminos distintos):
+#   `run-postgresql` arranca el server temporalmente y sourcea los hooks de la
+#   imagen (`start/set_passwords.sh`), que hacen `ALTER USER` -> en una replica
+#   (read-only) eso falla y abortaria el arranque. Por eso la replica NO usa
+#   `run-postgresql`: replica el final de `run-postgresql-slave` y hace
+#   `exec postgres` directo.
+#
+# Claves del ConfigMap:
+#   configure-and-run.sh  -> entrypoint del contenedor principal
+#   healthcheck.sh        -> readiness/liveness probes
+###############################################################################
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-scripts
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: postgres
+    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/component: database
+data:
+
+  # ==========================================================================
+  # ENTRYPOINT: decide el rol y prepara PGDATA.
+  # ==========================================================================
+  configure-and-run.sh: |
+    #!/bin/bash
+    #
+    # configure-and-run.sh -- entrypoint del contenedor PostgreSQL.
+    #
+    # Variables de entorno relevantes (inyectadas por el StatefulSet):
+    #   POD_NAMESPACE   namespace del pod (downward API)
+    #   HL_SERVICE      nombre del headless service
+    #   ROLE_FILE       ruta al archivo con el nombre del pod primary
+    #   POSTGRESQL_*    credenciales (desde el Secret)
+    #
+    set -euo pipefail
+
+    log() { echo "[pg-ha] $*"; }
+
+    POD_NAME="${HOSTNAME:-$(uname -n)}"
+    STS_NAME="${POD_NAME%-*}"
+    ORDINAL="${POD_NAME##*-}"
+    POD_NAMESPACE="${POD_NAMESPACE:-$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace 2>/dev/null || echo default)}"
+    HL_SERVICE="${HL_SERVICE:-${STS_NAME}-hl}"
+    ROLE_FILE="${ROLE_FILE:-/etc/pg-ha/role/PRIMARY_POD}"
+    PGPORT="${PGPORT:-5432}"
+
+    PRIMARY_POD="$(tr -d '[:space:]' < "$ROLE_FILE" 2>/dev/null || true)"
+    PRIMARY_POD="${PRIMARY_POD:-${STS_NAME}-0}"
+    PRIMARY_HOST="${PRIMARY_POD}.${HL_SERVICE}.${POD_NAMESPACE}.svc.cluster.local"
+
+    # Reutilizamos los helpers de la imagen sclorg. `source common.sh` exporta
+    # POSTGRESQL_* (tuning), define set_pgdata(), generate_*(), etc.
+    export ENABLE_REPLICATION=true
+    # shellcheck disable=SC1090
+    source "${CONTAINER_SCRIPTS_PATH}/common.sh"
+    set_pgdata                     # exporta PGDATA=$HOME/data/userdata
+
+    # generate_postgresql_recovery_config() usa $MASTER_FQDN.
+    export MASTER_FQDN="$PRIMARY_HOST"
+
+    log "pod=$POD_NAME ordinal=$ORDINAL ns=$POD_NAMESPACE primary_pod=$PRIMARY_POD"
+
+    is_primary_dir() { [ -f "$PGDATA/PG_VERSION" ] && [ ! -f "$PGDATA/standby.signal" ]; }
+    is_standby_dir() { [ -f "$PGDATA/PG_VERSION" ] && [ -f "$PGDATA/standby.signal" ]; }
+
+    wipe_pgdata() {
+      log "vaciando PGDATA=$PGDATA"
+      find "$PGDATA" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+    }
+
+    # El postgresql.auto.conf del PVC incluye el archivo de recovery, que vive
+    # en $HOME (se pierde al recrear el contenedor). Nos aseguramos de que el
+    # archivo exista siempre, para que el `include` resuelva.
+    ensure_recovery_include() {
+      local marker="# pg-ha: recovery include"
+      touch "${POSTGRESQL_RECOVERY_FILE}"
+      if ! grep -qF "$marker" "$PGDATA/postgresql.auto.conf" 2>/dev/null; then
+        {
+          echo ""
+          echo "$marker"
+          echo "include '${POSTGRESQL_RECOVERY_FILE}'"
+        } >> "$PGDATA/postgresql.auto.conf"
+      fi
+    }
+
+    wait_for_primary() {
+      local tries=0 max="${WAIT_PRIMARY_RETRIES:-120}"
+      while [ "$tries" -lt "$max" ]; do
+        if PGPASSWORD="${POSTGRESQL_MASTER_PASSWORD:-}" \
+           pg_isready -h "$PRIMARY_HOST" -p "$PGPORT" \
+                      -U "${POSTGRESQL_MASTER_USER:-postgres}" -q; then
+          log "primary $PRIMARY_HOST disponible"
+          return 0
+        fi
+        tries=$((tries + 1))
+        log "esperando primary $PRIMARY_HOST ($tries/$max)"
+        sleep 5
+      done
+      log "ERROR: primary $PRIMARY_HOST no respondio tras $((max * 5))s"
+      return 1
+    }
+
+    seed_from_primary() {
+      wait_for_primary
+      wipe_pgdata
+      log "pg_basebackup desde $PRIMARY_HOST"
+      PGPASSWORD="${POSTGRESQL_MASTER_PASSWORD:-}" pg_basebackup \
+        -h "$PRIMARY_HOST" -p "$PGPORT" \
+        -U "${POSTGRESQL_MASTER_USER:-postgres}" \
+        -D "$PGDATA" -Fp -X fetch --no-password -P
+      log "replica sembrada desde $PRIMARY_HOST"
+    }
+
+    # ----------------------------------------------------------------------
+    # Camino REPLICA: replica el final de run-postgresql-slave.
+    # ----------------------------------------------------------------------
+    start_as_replica() {
+      check_env_vars
+      generate_passwd_file
+      generate_postgresql_config
+
+      if is_primary_dir; then
+        log "ADVERTENCIA: PGDATA tiene datos de PRIMARY pero este pod es REPLICA -> re-sembrando"
+        seed_from_primary
+      elif is_standby_dir; then
+        log "PGDATA ya es standby -> refrescando primary_conninfo"
+      else
+        log "PGDATA vacio -> sembrando desde el primary"
+        seed_from_primary
+      fi
+
+      generate_postgresql_recovery_config   # primary_conninfo -> primary actual
+      ensure_recovery_include
+      touch "$PGDATA/standby.signal"
+
+      log "arrancando como REPLICA (hot standby)"
+      unset_env_vars
+      exec postgres "$@"
+    }
+
+    # ----------------------------------------------------------------------
+    # Camino PRIMARY: usa run-postgresql (initdb + hooks de la imagen).
+    # ----------------------------------------------------------------------
+    start_as_primary() {
+      if is_standby_dir; then
+        log "habia datos de standby -> promoviendo (se elimina standby.signal)"
+        rm -f "$PGDATA/standby.signal"
+      fi
+      if [ -f "$PGDATA/PG_VERSION" ]; then
+        ensure_recovery_include
+      else
+        log "PGDATA vacio: run-postgresql hara initdb y creara usuarios"
+      fi
+      log "arrancando como PRIMARY"
+      exec run-postgresql "$@"
+    }
+
+    if [ "$POD_NAME" = "$PRIMARY_POD" ]; then
+      log "rol deseado: PRIMARY"
+      start_as_primary "$@"
+    else
+      log "rol deseado: REPLICA de $PRIMARY_HOST"
+      start_as_replica "$@"
+    fi
+
+  # ==========================================================================
+  # HEALTHCHECK: usado por startupProbe, readinessProbe y livenessProbe.
+  #   healthcheck.sh        -> ready (acepta conexiones y, si es el primary
+  #                            declarado, NO esta en recovery)
+  #   healthcheck.sh live   -> solo "el proceso responde"
+  # ==========================================================================
+  healthcheck.sh: |
+    #!/bin/bash
+    set -uo pipefail
+
+    MODE="${1:-ready}"
+    PGPORT="${PGPORT:-5432}"
+    PGUSER="${POSTGRESQL_USER:-postgres}"
+    PGDATABASE="${POSTGRESQL_DATABASE:-postgres}"
+    export PGPASSWORD="${POSTGRESQL_PASSWORD:-}"
+
+    # 1. El servidor responde en TCP (los clientes entran por el Service).
+    pg_isready -q -h 127.0.0.1 -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" || exit 1
+    [ "$MODE" = "live" ] && exit 0
+
+    # 2. Si este pod es el primary declarado, debe aceptar escritura.
+    ROLE_FILE="${ROLE_FILE:-/etc/pg-ha/role/PRIMARY_POD}"
+    POD_NAME="${HOSTNAME:-$(uname -n)}"
+    DECLARED_PRIMARY="$(tr -d '[:space:]' < "$ROLE_FILE" 2>/dev/null || true)"
+    if [ "$DECLARED_PRIMARY" = "$POD_NAME" ]; then
+      IN_RECOVERY="$(psql -h 127.0.0.1 -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" \
+                        -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null || echo unknown)"
+      [ "$IN_RECOVERY" = "f" ] || exit 1
+    fi
+    exit 0

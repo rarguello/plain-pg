@@ -1,0 +1,29 @@
+###############################################################################
+# configmap-role.yaml
+#
+# "Estado de verdad" de quien es el primary. Es un ConfigMap plano, editable
+# con `oc patch`, y es lo unico que hay que cambiar para promover una replica.
+#
+#   PRIMARY_POD   nombre del pod que debe ser primary. El resto son replicas.
+#   AUTO_FAILOVER "true"/"false": habilita/deshabilita el failover automatico
+#                 (lo lee el CronJob del componente failover-automatico).
+#   FAILOVER_GRACE_SECONDS  cuanto esperar a que el primary vuelva antes de
+#                 declararlo caido (lo lee el CronJob).
+#
+# Los pods leen PRIMARY_POD SOLO al arrancar. Tras cambiar este ConfigMap hay
+# que reiniciar los pods afectados (los scripts de failover lo hacen).
+###############################################################################
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-role
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: postgres
+    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/component: database
+data:
+  PRIMARY_POD: "postgres-0"
+  AUTO_FAILOVER: "false"
+  FAILOVER_GRACE_SECONDS: "120"

@@ -1,0 +1,87 @@
+###############################################################################
+# cronjob.yaml
+#
+# Corre el controlador de failover cada minuto. `concurrencyPolicy: Forbid`
+# evita solapamiento (una corrida puede durar la gracia + la promocion).
+#
+# El pod del CronJob NO tiene estado: lee PRIMARY_POD / AUTO_FAILOVER /
+# FAILOVER_GRACE_SECONDS del ConfigMap postgres-role via envFrom (se resuelve
+# en cada corrida) y las credenciales del Secret postgres-credentials.
+###############################################################################
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-failover
+  labels:
+    app.kubernetes.io/name: pg-failover
+    app.kubernetes.io/instance: pg-ha
+    app.kubernetes.io/part-of: pg-ha
+    app.kubernetes.io/component: failover
+spec:
+  schedule: "*/1 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          # OJO: estas labels NO deben coincidir con las de los pods de la BD,
+          # o el pod del CronJob entraria como endpoint de los Services de
+          # PostgreSQL (postgres-hl/-rw/-ro).
+          labels:
+            app.kubernetes.io/name: pg-failover
+            app.kubernetes.io/instance: pg-ha
+            app.kubernetes.io/part-of: pg-ha
+            app.kubernetes.io/component: failover
+        spec:
+          serviceAccountName: postgres-failover
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: failover-controller
+              image: registry.redhat.io/rhel10/postgresql-18:latest
+              command: ["/bin/bash", "/scripts/failover-controller.sh"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              envFrom:
+                - configMapRef:
+                    name: postgres-role
+                - secretRef:
+                    name: postgres-credentials
+              env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: HL_SERVICE
+                  value: postgres-hl
+                - name: PGPORT
+                  value: "5432"
+              resources:
+                requests:
+                  cpu: "20m"
+                  memory: "64Mi"
+                limits:
+                  memory: "128Mi"
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: postgres-failover-scripts
+                defaultMode: 0755
+                items:
+                  - key: failover-controller.sh
+                    path: failover-controller.sh

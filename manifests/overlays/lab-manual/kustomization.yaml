@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Overlay MINIMO: solo replicacion + failover MANUAL. Sin CronJob, sin RBAC,
+# sin failover automatico (AUTO_FAILOVER queda en "false").
+
+namespace: pg-ha-lab
+
+resources:
+  - ../lab/namespace.yaml
+  - ../../base
+
+images:
+  - name: registry.redhat.io/rhel10/postgresql-18
+    digest: sha256:8b0fd3d5aa1c6ae25da4dc4dfd04fe9de2a47359b57aa4c9b82cede2c3da814a

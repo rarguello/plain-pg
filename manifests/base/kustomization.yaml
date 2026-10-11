@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Base "pura": objetos core de Kubernetes, sin namespace, sin imagen fijada.
+# Se usa siempre a traves de un overlay (overlays/lab, overlays/lab-manual).
+
+resources:
+  - configmap-scripts.yaml
+  - configmap-role.yaml
+  - services.yaml
+  - statefulset.yaml
+  - networkpolicy.yaml
