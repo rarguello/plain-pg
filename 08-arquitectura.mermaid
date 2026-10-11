@@ -1,0 +1,53 @@
+---
+title: "PostgreSQL HA con StatefulSet - Arquitectura"
+---
+flowchart TB
+    subgraph ns["Namespace: produbanco-databases"]
+
+        subgraph sts["StatefulSet: pg-keycloak (replicas: 2)"]
+            subgraph pod0["Pod: pg-keycloak-0 (PRIMARY)"]
+                pg0["PostgreSQL 16\n🟢 Read/Write\nwal_level=replica"]
+                pvc0[("PVC: pgdata-pg-keycloak-0\n20Gi (Ceph RBD)")]
+                pg0 --- pvc0
+            end
+
+            subgraph pod1["Pod: pg-keycloak-1 (REPLICA)"]
+                pg1["PostgreSQL 16\n🔵 Hot Standby\n(Read Only)"]
+                pvc1[("PVC: pgdata-pg-keycloak-1\n20Gi (Ceph RBD)")]
+                pg1 --- pvc1
+            end
+        end
+
+        pg0 -->|"Streaming\nReplication\n(WAL)"| pg1
+
+        svc_rw["Service: pg-keycloak-rw\n(selecciona solo pod-0)"]
+        svc_ro["Service: pg-keycloak-ro\n(todos los pods)"]
+        svc_hl["Service: pg-keycloak-headless\n(DNS pod-to-pod)"]
+
+        svc_rw -.->|"5432"| pod0
+        svc_ro -.->|"5432"| pod0
+        svc_ro -.->|"5432"| pod1
+        svc_hl -.-> pod0
+        svc_hl -.-> pod1
+
+        cm["ConfigMap: pg-ha-scripts\n(entrypoint + healthcheck)"]
+        sec["Secret: pg-replication-credentials\n(user/password replicación)"]
+        cm -.-> sts
+        sec -.-> sts
+    end
+
+    subgraph kc_ns["Namespace: keycloak"]
+        kc["Keycloak / RHSSO\n🔐"]
+    end
+
+    subgraph ts_ns["Namespace: 3scale"]
+        ts["3scale API Manager\n🌐"]
+    end
+
+    kc -->|"jdbc:postgresql://\npg-keycloak-rw:5432\n/keycloak"| svc_rw
+    ts -->|"postgresql://\npg-3scale-*-rw:5432"| svc_rw
+
+    style pod0 fill:#d4edda,stroke:#28a745
+    style pod1 fill:#cce5ff,stroke:#004085
+    style svc_rw fill:#fff3cd,stroke:#856404
+    style svc_ro fill:#e2e3e5,stroke:#383d41

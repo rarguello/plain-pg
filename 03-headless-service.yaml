@@ -1,0 +1,41 @@
+###############################################################################
+# 03-headless-service.yaml
+# Headless Service para DNS estable entre los pods del StatefulSet.
+#
+# Un Headless Service (clusterIP: None) NO balancea tráfico.
+# Lo que hace es crear registros DNS individuales por pod:
+#
+#   pg-keycloak-0.pg-keycloak-headless.produbanco-databases.svc.cluster.local
+#   pg-keycloak-1.pg-keycloak-headless.produbanco-databases.svc.cluster.local
+#
+# Esto es lo que permite que la réplica (pod-1) encuentre al primary (pod-0)
+# usando un hostname estable, sin importar en qué nodo o IP esté corriendo.
+#
+# IMPORTANTE: Este Service es OBLIGATORIO para StatefulSets.
+# Debe existir ANTES de crear el StatefulSet.
+###############################################################################
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-keycloak-headless
+  namespace: produbanco-databases
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: pg-keycloak
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  clusterIP: None
+  # publishNotReadyAddresses: true permite que los pods se resuelvan por DNS
+  # incluso antes de pasar el readiness probe. Necesario para que la réplica
+  # pueda conectarse al primary durante el arranque.
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: pg-keycloak
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+      protocol: TCP

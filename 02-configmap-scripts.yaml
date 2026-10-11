@@ -1,0 +1,406 @@
+###############################################################################
+# 02-configmap-scripts.yaml
+# ConfigMap con el script de entrypoint que detecta el rol del pod
+# (primary o replica) y configura PostgreSQL acorde.
+#
+# CÓMO FUNCIONA:
+#
+# 1. El script extrae el ordinal del hostname del pod.
+#    En un StatefulSet llamado "pg-keycloak", los pods se llaman:
+#      pg-keycloak-0  →  ordinal 0  →  PRIMARY
+#      pg-keycloak-1  →  ordinal 1  →  REPLICA
+#
+# 2. Si es ordinal 0 (PRIMARY):
+#    - Si no hay datos: inicializa PostgreSQL normalmente
+#    - Configura wal_level=replica, crea usuario de replicación
+#    - Arranca PostgreSQL aceptando conexiones de replicación
+#
+# 3. Si es ordinal 1+ (REPLICA):
+#    - Si no hay datos: hace pg_basebackup desde pod-0
+#    - Crea el archivo standby.signal (PG12+)
+#    - Configura primary_conninfo apuntando al pod-0
+#    - Arranca PostgreSQL en modo hot standby (solo lectura)
+#
+# COMPATIBLE CON:
+#   - Imagen registry.redhat.io/rhel9/postgresql-15
+#   - Imagen registry.redhat.io/rhel9/postgresql-16
+#   - Imagen docker.io/library/postgres:15 / :16
+#   - Cualquier imagen con PostgreSQL 14+ y herramientas estándar
+###############################################################################
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pg-ha-scripts
+  namespace: produbanco-databases
+  labels:
+    app.kubernetes.io/component: postgresql
+data:
+  # =========================================================================
+  # SCRIPT PRINCIPAL: setup-and-run.sh
+  # Se monta como entrypoint del contenedor.
+  # =========================================================================
+  setup-and-run.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    # -------------------------------------------------------------------
+    # VARIABLES DE CONFIGURACIÓN
+    # Estas se pueden sobreescribir con variables de entorno en el
+    # StatefulSet si la estructura de directorios es diferente.
+    # -------------------------------------------------------------------
+
+    # Directorio de datos de PostgreSQL.
+    # Para la imagen RHEL9 de Red Hat: /var/lib/pgsql/data/userdata
+    # Para la imagen oficial de Docker: /var/lib/postgresql/data
+    PGDATA="${PGDATA:-/var/lib/pgsql/data/userdata}"
+
+    # Nombre del StatefulSet (para construir el FQDN del primary)
+    # Se extrae automáticamente del hostname del pod.
+    HOSTNAME=$(hostname)
+    ORDINAL="${HOSTNAME##*-}"
+    STS_NAME="${HOSTNAME%-*}"
+
+    # FQDN del pod primary (ordinal 0) via Headless Service.
+    # Formato: <pod-name>.<headless-service>.<namespace>.svc.cluster.local
+    PRIMARY_HOST="${STS_NAME}-0.${STS_NAME}-headless.${POD_NAMESPACE}.svc.cluster.local"
+
+    # Puerto de PostgreSQL
+    PG_PORT="${PG_PORT:-5432}"
+
+    # Credenciales de replicación (inyectadas como env vars desde el Secret)
+    REPL_USER="${REPLICATION_USER:-replicator}"
+    REPL_PASS="${REPLICATION_PASSWORD}"
+
+    # -------------------------------------------------------------------
+    # FUNCIONES AUXILIARES
+    # -------------------------------------------------------------------
+    log() {
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')] [pg-ha] $*"
+    }
+
+    wait_for_primary() {
+      log "Esperando a que el primary ($PRIMARY_HOST) esté disponible..."
+      local retries=0
+      local max_retries=60
+      while [ $retries -lt $max_retries ]; do
+        if pg_isready -h "$PRIMARY_HOST" -p "$PG_PORT" -U postgres -q 2>/dev/null; then
+          log "Primary disponible."
+          return 0
+        fi
+        retries=$((retries + 1))
+        log "  Intento $retries/$max_retries - primary no responde aún..."
+        sleep 5
+      done
+      log "ERROR: Primary no disponible después de $((max_retries * 5)) segundos."
+      exit 1
+    }
+
+    # -------------------------------------------------------------------
+    # DETECCIÓN DE ROL
+    # -------------------------------------------------------------------
+    log "=== Pod: $HOSTNAME | Ordinal: $ORDINAL | Namespace: $POD_NAMESPACE ==="
+
+    if [ "$ORDINAL" -eq 0 ]; then
+      # =================================================================
+      # ROL: PRIMARY (ordinal 0)
+      # =================================================================
+      log "Rol detectado: PRIMARY"
+
+      if [ ! -f "$PGDATA/PG_VERSION" ]; then
+        # ---------------------------------------------------------------
+        # CASO: Primera ejecución - inicializar base de datos
+        # ---------------------------------------------------------------
+        log "Directorio de datos vacío. Inicializando PostgreSQL..."
+
+        # Crear directorio si no existe
+        mkdir -p "$PGDATA"
+
+        # Inicializar el cluster de PostgreSQL
+        initdb -D "$PGDATA" \
+          --encoding=UTF8 \
+          --locale=en_US.UTF-8 \
+          --auth-host=scram-sha-256 \
+          --auth-local=peer
+
+        log "initdb completado."
+
+        # ---------------------------------------------------------------
+        # Configurar postgresql.conf para replicación
+        # ---------------------------------------------------------------
+        log "Configurando postgresql.conf para replicación..."
+        cat >> "$PGDATA/postgresql.conf" <<PGCONF
+
+    # ===== CONFIGURACIÓN DE REPLICACIÓN (agregada por pg-ha) =====
+    listen_addresses = '*'
+    port = ${PG_PORT}
+
+    # WAL - requerido para streaming replication
+    wal_level = replica
+    max_wal_senders = 5
+    wal_keep_size = '512MB'
+
+    # Réplicas que pueden conectarse
+    max_replication_slots = 5
+    hot_standby = on
+
+    # Sincronización (cambiar a 'on' para zero data loss, con impacto en latencia)
+    synchronous_commit = on
+
+    # Logging
+    log_statement = 'ddl'
+    log_connections = on
+    log_disconnections = on
+    log_min_duration_statement = 1000
+
+    # Rendimiento básico
+    shared_buffers = '256MB'
+    effective_cache_size = '768MB'
+    work_mem = '8MB'
+    maintenance_work_mem = '64MB'
+    max_connections = 200
+
+    # Extensiones de monitoreo
+    shared_preload_libraries = 'pg_stat_statements'
+    PGCONF
+
+        # ---------------------------------------------------------------
+        # Configurar pg_hba.conf para permitir replicación
+        # ---------------------------------------------------------------
+        log "Configurando pg_hba.conf..."
+        cat > "$PGDATA/pg_hba.conf" <<PGHBA
+    # TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+    # Conexiones locales
+    local   all             all                                     peer
+    local   replication     all                                     peer
+
+    # Conexiones desde la red del cluster (pods)
+    # Red de pods típica de OpenShift/Kubernetes
+    host    all             all             10.0.0.0/8              scram-sha-256
+    host    all             all             172.16.0.0/12           scram-sha-256
+    host    all             all             192.168.0.0/16          scram-sha-256
+
+    # Replicación desde cualquier pod del cluster
+    host    replication     ${REPL_USER}    10.0.0.0/8              scram-sha-256
+    host    replication     ${REPL_USER}    172.16.0.0/12           scram-sha-256
+    host    replication     ${REPL_USER}    192.168.0.0/16          scram-sha-256
+    PGHBA
+
+        # ---------------------------------------------------------------
+        # Arrancar PostgreSQL temporalmente para crear usuario y BD
+        # ---------------------------------------------------------------
+        log "Arrancando PostgreSQL temporalmente para setup inicial..."
+        pg_ctl -D "$PGDATA" -w start -o "-c listen_addresses='localhost'"
+
+        # Crear usuario de replicación
+        log "Creando usuario de replicación: ${REPL_USER}..."
+        psql -d postgres -c "
+          DO \$\$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${REPL_USER}') THEN
+              CREATE ROLE ${REPL_USER} WITH REPLICATION LOGIN PASSWORD '${REPL_PASS}';
+              RAISE NOTICE 'Usuario de replicación creado.';
+            ELSE
+              ALTER ROLE ${REPL_USER} WITH PASSWORD '${REPL_PASS}';
+              RAISE NOTICE 'Password del usuario de replicación actualizado.';
+            END IF;
+          END
+          \$\$;
+        "
+
+        # Crear slot de replicación (evita que el primary descarte WALs que la réplica necesita)
+        log "Creando replication slot..."
+        psql -d postgres -c "
+          SELECT pg_create_physical_replication_slot('replica_1_slot')
+          WHERE NOT EXISTS (
+            SELECT 1 FROM pg_replication_slots WHERE slot_name = 'replica_1_slot'
+          );
+        "
+
+        # Configurar password del superusuario
+        log "Configurando password del superusuario postgres..."
+        psql -d postgres -c "ALTER USER postgres PASSWORD '${POSTGRES_PASSWORD}';"
+
+        # Crear la base de datos de la aplicación si no existe
+        # (para Keycloak)
+        if [ -n "${APP_DATABASE:-}" ]; then
+          log "Creando base de datos: ${APP_DATABASE}..."
+          psql -d postgres -c "
+            SELECT 'CREATE DATABASE ${APP_DATABASE}'
+            WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${APP_DATABASE}')
+            \gexec
+          "
+          if [ -n "${APP_USER:-}" ]; then
+            psql -d postgres -c "
+              DO \$\$
+              BEGIN
+                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${APP_USER}') THEN
+                  CREATE ROLE ${APP_USER} LOGIN PASSWORD '${APP_PASSWORD}';
+                END IF;
+              END
+              \$\$;
+              GRANT ALL PRIVILEGES ON DATABASE ${APP_DATABASE} TO ${APP_USER};
+            "
+          fi
+        fi
+
+        # Detener PostgreSQL temporal
+        pg_ctl -D "$PGDATA" -w stop
+        log "Setup inicial completado."
+
+      else
+        # ---------------------------------------------------------------
+        # CASO: Reinicio - datos existentes
+        # ---------------------------------------------------------------
+        log "Directorio de datos existente. Verificando configuración de replicación..."
+
+        # Asegurar que el usuario de replicación existe (por si fue un upgrade)
+        # Esto se hace al arrancar más abajo si es necesario.
+
+        # Si había un standby.signal (el pod era réplica y ahora es pod-0 por renombramiento),
+        # removemos el standby.signal para que arranque como primary.
+        if [ -f "$PGDATA/standby.signal" ]; then
+          log "ADVERTENCIA: standby.signal encontrado en pod-0. Promoviendo a primary..."
+          rm -f "$PGDATA/standby.signal"
+        fi
+      fi
+
+      # ---------------------------------------------------------------
+      # ARRANCAR COMO PRIMARY
+      # ---------------------------------------------------------------
+      log "Arrancando PostgreSQL como PRIMARY..."
+      exec postgres -D "$PGDATA"
+
+    else
+      # =================================================================
+      # ROL: REPLICA (ordinal 1+)
+      # =================================================================
+      log "Rol detectado: REPLICA (standby hot)"
+
+      if [ ! -f "$PGDATA/PG_VERSION" ]; then
+        # ---------------------------------------------------------------
+        # CASO: Primera ejecución - hacer pg_basebackup desde primary
+        # ---------------------------------------------------------------
+        log "Directorio de datos vacío. Preparando réplica..."
+
+        # Esperar a que el primary esté listo
+        wait_for_primary
+
+        # Limpiar directorio (por si hay archivos parciales de un intento anterior)
+        rm -rf "${PGDATA:?}"/*
+
+        # Hacer base backup desde el primary
+        log "Ejecutando pg_basebackup desde $PRIMARY_HOST..."
+        PGPASSWORD="${REPL_PASS}" pg_basebackup \
+          -h "$PRIMARY_HOST" \
+          -p "$PG_PORT" \
+          -U "$REPL_USER" \
+          -D "$PGDATA" \
+          -Fp \
+          -Xs \
+          -P \
+          -R \
+          -S "replica_${ORDINAL}_slot"
+
+        # pg_basebackup con -R ya crea:
+        #   - standby.signal
+        #   - postgresql.auto.conf con primary_conninfo
+        #
+        # Pero vamos a verificar y ajustar por si acaso.
+
+        log "pg_basebackup completado."
+
+      else
+        # ---------------------------------------------------------------
+        # CASO: Reinicio - datos de réplica existentes
+        # ---------------------------------------------------------------
+        log "Directorio de datos existente. Verificando configuración de standby..."
+      fi
+
+      # ---------------------------------------------------------------
+      # Asegurar que standby.signal existe (marca el nodo como réplica)
+      # ---------------------------------------------------------------
+      if [ ! -f "$PGDATA/standby.signal" ]; then
+        log "Creando standby.signal..."
+        touch "$PGDATA/standby.signal"
+      fi
+
+      # ---------------------------------------------------------------
+      # Asegurar primary_conninfo en postgresql.auto.conf
+      # (puede cambiar si se recreó el pod con nuevo password)
+      # ---------------------------------------------------------------
+      log "Actualizando primary_conninfo..."
+
+      # Crear o sobreescribir el postgresql.auto.conf con la conexión al primary
+      # Nota: primary_conninfo en postgresql.auto.conf tiene precedencia sobre postgresql.conf
+      cat > "$PGDATA/postgresql.auto.conf" <<AUTOCONF
+    # Configuración automática de standby (generada por pg-ha)
+    primary_conninfo = 'host=${PRIMARY_HOST} port=${PG_PORT} user=${REPL_USER} password=${REPL_PASS} application_name=${HOSTNAME}'
+    primary_slot_name = 'replica_${ORDINAL}_slot'
+    AUTOCONF
+
+      # ---------------------------------------------------------------
+      # Asegurar hot_standby en postgresql.conf (para servir lecturas)
+      # ---------------------------------------------------------------
+      if ! grep -q "hot_standby = on" "$PGDATA/postgresql.conf" 2>/dev/null; then
+        echo "hot_standby = on" >> "$PGDATA/postgresql.conf"
+      fi
+
+      # ---------------------------------------------------------------
+      # ARRANCAR COMO REPLICA
+      # ---------------------------------------------------------------
+      log "Arrancando PostgreSQL como REPLICA (hot standby)..."
+      exec postgres -D "$PGDATA"
+    fi
+
+  # =========================================================================
+  # SCRIPT DE HEALTH CHECK: pg-healthcheck.sh
+  # Usado por los readiness/liveness probes del StatefulSet.
+  # =========================================================================
+  pg-healthcheck.sh: |
+    #!/bin/bash
+    # Health check que funciona tanto para primary como replica.
+    # En el primary: pg_isready retorna 0 si acepta conexiones
+    # En la réplica: pg_isready retorna 0 si acepta conexiones (hot standby)
+    pg_isready -U postgres -q
+
+  # =========================================================================
+  # SCRIPT DE VERIFICACIÓN DE REPLICACIÓN: check-replication.sh
+  # Para uso manual por los DBAs o para monitoreo.
+  # =========================================================================
+  check-replication.sh: |
+    #!/bin/bash
+    # Ejecutar en el PRIMARY para ver estado de las réplicas:
+    #   oc exec pg-keycloak-0 -n produbanco-databases -- /scripts/check-replication.sh
+    echo "=== Estado de Replicación ==="
+    echo ""
+    echo "--- Réplicas conectadas ---"
+    psql -U postgres -d postgres -c "
+      SELECT
+        application_name AS replica,
+        state,
+        sync_state,
+        pg_wal_lsn_diff(pg_current_wal_lsn(), sent_lsn) AS sent_lag_bytes,
+        pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn) AS replay_lag_bytes,
+        pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn)) AS replay_lag_pretty
+      FROM pg_stat_replication;
+    "
+    echo ""
+    echo "--- Replication Slots ---"
+    psql -U postgres -d postgres -c "
+      SELECT
+        slot_name,
+        active,
+        pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) AS retained_bytes,
+        pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) AS retained_pretty
+      FROM pg_replication_slots;
+    "
+    echo ""
+    echo "--- Info del Primary ---"
+    psql -U postgres -d postgres -c "
+      SELECT
+        pg_is_in_recovery() AS is_replica,
+        pg_current_wal_lsn() AS current_wal_lsn,
+        pg_postmaster_start_time() AS started_at;
+    "

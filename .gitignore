@@ -1,0 +1,8 @@
+# Secretos generados localmente (nunca se versionan)
+secrets/
+*.secret.env
+.env
+
+# Salidas temporales de pruebas
+tmp/
+*.log
