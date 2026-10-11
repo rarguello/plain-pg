@@ -7,7 +7,7 @@ The suite runs **against a real cluster** (there are no mocks). Each test prints
 
 ```bash
 ./tests/run-all.sh              # all (includes destructive: failover, teardown)
-./tests/run-all.sh rapido       # only the non-destructive
+./tests/run-all.sh quick       # only the non-destructive
 ./tests/run-all.sh t03 t04      # specific tests
 ```
 
@@ -66,15 +66,15 @@ That is what the CI (`.github/workflows/lint.yml`) runs on every push.
 
 ## Results
 
-Last full run in the lab (OpenShift 4.21, SNO
-`sno.virt.daytwo.dev`): **21/21 tests, 214 checks, 0 failures, ~15 min.**
+Last full run in the lab (OpenShift 4.21, SNO `sno.virt.daytwo.dev`):
+**23/23 tests, 232 checks, 0 failures, ~21 min.**
 
 | Test | PASS |
 |---|---|
-| t01 deployment | 29 |
+| t01 deploy | 29 |
 | t02 roles | 11 |
 | t03 replication | 7 |
-| t04 services | 8 |
+| t04 services | 11 |
 | t05 config | 13 |
 | t06 persistence | 11 |
 | t07 manual failover (round trip) | 18 |
@@ -83,7 +83,7 @@ Last full run in the lab (OpenShift 4.21, SNO
 | t10 security | 16 |
 | t11 teardown and redeploy | 11 |
 | t12 backups and restore | 11 |
-| t13 scaling | 8 |
+| t13 scaling | 9 |
 | t14 integrity | 4 |
 | t15 re-seed | 7 |
 | t16 failover under load | 9 |
@@ -92,5 +92,7 @@ Last full run in the lab (OpenShift 4.21, SNO
 | t19 selectors (regression) | 8 |
 | t20 full restart after failover | 9 |
 | t21 PostgreSQL security | 7 |
+| t22 read balancing | 4 |
+| t23 HPA under read load | 10 |
 
 Full output: [`evidence/2026-10-11-suite-completa.txt`](evidence/2026-10-11-suite-completa.txt).

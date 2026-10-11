@@ -47,7 +47,7 @@ No operator, no CRDs, no console.
 1. Read `docs/` before proposing changes.
 2. One commit per logical step, clear message.
 3. Apply to the cluster and **verify with evidence**.
-4. Run `./tests/run-all.sh rapido` before closing a step; the full
+4. Run `./tests/run-all.sh quick` before closing a step; the full
    `./tests/run-all.sh` before a release.
 5. Update the affected documentation in the same commit.
 6. Have Codex review each milestone (correction of YAML/scripts, split-brain or
@@ -63,7 +63,7 @@ No operator, no CRDs, no console.
 ./scripts/restore-backup.sh <dump>   # restore into a new database
 ./scripts/read-load.sh 180 12        # read load (HPA demo)
 ./scripts/teardown.sh                # destroy
-./tests/run-all.sh rapido            # non-destructive tests
+./tests/run-all.sh quick            # non-destructive tests
 make lint                            # shellcheck + kustomize + embedded scripts
 ```
 

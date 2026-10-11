@@ -8,11 +8,11 @@ the overall result.
 
 | File | Date | Result |
 |---|---|---|
-| [`2026-10-11-suite-completa.txt`](2026-10-11-suite-completa.txt) | 2026-10-11 | 21/21 tests, 214 checks, 0 failures |
+| [`2026-10-11-suite-completa.txt`](2026-10-11-suite-completa.txt) | 2026-10-11 | 23/23 tests, 232 checks, 0 failures |
 
 How to reproduce:
 
 ```bash
 ./tests/run-all.sh            # all (includes destructive)
-./tests/run-all.sh rapido     # only the non-destructive
+./tests/run-all.sh quick     # only the non-destructive
 ```

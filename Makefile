@@ -38,7 +38,7 @@ lint:
 	python3 tools/check-scripts.py $(RENDERED) $(RENDERED).manual
 
 test-quick:
-	./tests/run-all.sh rapido
+	./tests/run-all.sh quick
 
 test:
 	./tests/run-all.sh

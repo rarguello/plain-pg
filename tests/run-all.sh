@@ -4,7 +4,7 @@
 #
 # Usage:
 #   ./tests/run-all.sh              # all (includes destructive: failover, teardown)
-#   ./tests/run-all.sh rapido       # only the non-destructive ones (t01-t06, t09, t10)
+#   ./tests/run-all.sh quick       # only the non-destructive ones
 #   ./tests/run-all.sh t03 t04      # specific tests
 #
 set -uo pipefail
@@ -17,7 +17,7 @@ RAPIDO=(t01 t02 t03 t04 t05 t06 t09 t10 t12 t14 t18 t19 t21 t22)
 
 if [ "$#" -eq 0 ]; then
   SEL=("${ALL[@]}")
-elif [ "$1" = "rapido" ]; then
+elif [ "$1" = "quick" ]; then
   SEL=("${RAPIDO[@]}")
 else
   SEL=("$@")
