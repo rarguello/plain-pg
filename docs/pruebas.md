@@ -39,6 +39,7 @@ y vuelve a desplegar desde cero.
 | `t18_imagen` | El digest fijado coincide con el del registro y con el de los pods |
 | `t19_selectores` | Regresión: los pods auxiliares no colisionan con los selectores de los Services |
 | `t20_reinicio_total` | Tras un failover, recrear **los dos** pods a la vez deja los roles correctos (sin deadlock de `Parallel`) |
+| `t21_seguridad_pg` | El usuario de la app no es superusuario; la réplica rechaza DDL; `pg_hba` sin `trust`; el superusuario exige password |
 
 ## Requisitos
 
