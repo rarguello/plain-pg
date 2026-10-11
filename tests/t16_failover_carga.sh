@@ -98,7 +98,8 @@ KEPT="$(pod_psql "$REPLICA" -tAc "SELECT count(*) FROM t_load_fo WHERE id <= $PR
 check_eq "los $PRE_MAX registros previos sobrevivieron" "$PRE_MAX" "${KEPT:-0}"
 
 echo "  (esperando al escritor)"
-oc -n "$NS" wait --for=condition=complete "job/$WRITER" --timeout=240s >/dev/null 2>&1 || true
+oc -n "$NS" wait --for=condition=complete --for=condition=failed \
+  "job/$WRITER" --timeout=240s >/dev/null 2>&1 || true
 WLOG="$(oc -n "$NS" logs "job/$WRITER" 2>/dev/null || true)"
 
 # "OK <id> <epoch>": separo lo confirmado ANTES de que arranque el failover

@@ -81,12 +81,19 @@ spec:
                 path: restore.sh
 EOF
 
-if ! oc -n "$NS" wait --for=condition=complete "job/$JOB" --timeout=1800s >/dev/null; then
-  echo "ERROR: el restore fallo. Logs:" >&2
+if ! oc -n "$NS" wait --for=condition=complete --for=condition=failed \
+        "job/$JOB" --timeout=1800s >/dev/null 2>&1; then
+  echo "ERROR: el restore no termino a tiempo. Logs:" >&2
   oc -n "$NS" logs "job/$JOB" --tail=100 >&2 || true
   exit 1
 fi
 
-oc -n "$NS" logs "job/$JOB"
+DONE="$(oc -n "$NS" get job "$JOB" -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || true)"
+oc -n "$NS" logs "job/$JOB" || true
+if [ "$DONE" != "True" ]; then
+  echo "ERROR: el restore fallo." >&2
+  [ "${KEEP_JOB:-0}" = "1" ] || oc -n "$NS" delete job "$JOB" >/dev/null 2>&1 || true
+  exit 1
+fi
 [ "${KEEP_JOB:-0}" = "1" ] || oc -n "$NS" delete job "$JOB" >/dev/null 2>&1 || true
 echo "Base restaurada: $TARGET"
