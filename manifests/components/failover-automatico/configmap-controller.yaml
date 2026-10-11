@@ -82,8 +82,10 @@ data:
       rm -f "$tmp"
       case "$code" in 2*|404) return 0 ;; *) log "ERROR: DELETE pod/$1 -> HTTP $code"; return 1 ;; esac
     }
-    pod_uid() {
-      api GET "/api/v1/namespaces/$NS/pods/$1" 2>/dev/null \
+    pod_uid() {   # sin `api`: un pod inexistente (404) es normal durante el fencing
+      curl -sS --connect-timeout 5 --max-time 15 --cacert "$CACERT" \
+        -H "Authorization: Bearer $TOKEN" \
+        "${API}/api/v1/namespaces/$NS/pods/$1" 2>/dev/null \
         | grep -o '"uid":"[^"]*"' | head -1 | cut -d'"' -f4
     }
 

@@ -59,7 +59,7 @@ cambiar un valor y recrear pods — no hace falta un controlador.
 Requisitos: `oc` (o `kubectl`) logueado en el cluster y `git`. Nada más.
 
 ```bash
-git clone <este-repo> && cd pg-ha
+git clone https://github.com/<tu-usuario>/pg-ha.git && cd pg-ha
 
 ./scripts/deploy.sh              # despliega el overlay completo (con failover automático)
 ./scripts/verify-replication.sh  # verifica que la réplica está al día
@@ -120,7 +120,8 @@ manifests/
   overlays/lab/         despliegue completo   (pg-ha-lab)
   overlays/lab-manual/  solo failover manual
 scripts/                deploy, teardown, verify, failover, backup, restore
-tests/                  batería de pruebas (t01…t19) + runner
+tests/                  batería de pruebas (t01…t20) + runner
+tools/                  validación estática (scripts embebidos)
 docs/                   documentación
 ```
 
