@@ -139,6 +139,11 @@ The suite runs against a real cluster, no mocks: **23 tests, 233 checks, 0
 failures** covering deploy, replication, manual and automatic failover,
 persistence, backups, scaling and the HPA. See [docs/tests.md](docs/tests.md).
 
+CI runs it too: on every push it lints, validates the manifests (Kubernetes
+schema + the AGENTS.md rules) and scans for secrets; **every night it creates a
+throwaway MicroShift cluster inside the runner** (MINC) and runs the suite
+against it, uploading the transcript.
+
 ## Documentation
 
 - [docs/operations.md](docs/operations.md) — deploy, verify, connect, restart, re-seed

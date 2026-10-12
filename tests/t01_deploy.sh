@@ -35,7 +35,7 @@ for p in pgdata-postgresql-0 pgdata-postgresql-1; do
   check_eq "PVC $p is Bound" "Bound" \
     "$(oc -n "$NS" get pvc "$p" -o jsonpath='{.status.phase}' 2>/dev/null)"
 done
-check_eq "the PVCs use the default StorageClass" "lvms-vg1" \
+check_eq "the PVCs use the default StorageClass" "${STORAGE_CLASS:-lvms-vg1}" \
   "$(oc -n "$NS" get pvc pgdata-postgresql-0 -o jsonpath='{.spec.storageClassName}' 2>/dev/null)"
 
 # Ready pods
