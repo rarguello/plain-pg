@@ -14,21 +14,14 @@ concurrency:
 
 jobs:
   microshift:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
       - name: Install podman, oc and minc
         run: |
-          sudo apt-get update -qq
-          # The distro podman on ubuntu-22.04 (3.4.x) is too old for MINC; the
-          # Kubic repo ships 4.x.
-          sudo mkdir -p /etc/apt/keyrings
-          curl -fsSL "https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_22.04/Release.key" \
-            | gpg --dearmor | sudo tee /etc/apt/keyrings/kubic.gpg >/dev/null
-          echo "deb [signed-by=/etc/apt/keyrings/kubic.gpg] https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_22.04/ /" \
-            | sudo tee /etc/apt/sources.list.d/kubic.list
+          # Same recipe as MINC's own CI: ubuntu-24.04 with the distro podman.
           sudo apt-get update -qq
           sudo apt-get install -y -qq podman
           podman version
@@ -44,13 +37,10 @@ jobs:
 
       - name: Start MINC (MicroShift)
         run: |
-          free -m; df -h / || true
-          minc create
-          # Diagnostics: if the container exits, show why before failing.
-          sudo podman ps -a || true
-          sudo podman inspect microshift --format 'status={{.State.Status}} exit={{.State.ExitCode}} err={{.State.Error}}' || true
-          sudo podman logs microshift 2>&1 | tail -120 || true
-          minc status || true
+          minc create --log-level debug
+          minc status
+          # Generate a clean kubeconfig context (as MINC's own CI does).
+          oc config delete-context microshift 2>/dev/null || true
           minc generate-kubeconfig
           oc get nodes
 
