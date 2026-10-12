@@ -44,11 +44,13 @@ jobs:
 
       - name: Start MINC (MicroShift)
         run: |
+          free -m; df -h / || true
           minc create
           # Diagnostics: if the container exits, show why before failing.
           sudo podman ps -a || true
+          sudo podman inspect microshift --format 'status={{.State.Status}} exit={{.State.ExitCode}} err={{.State.Error}}' || true
+          sudo podman logs microshift 2>&1 | tail -120 || true
           minc status || true
-          sudo podman logs microshift 2>&1 | tail -40 || true
           minc generate-kubeconfig
           oc get nodes
 
