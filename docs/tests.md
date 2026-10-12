@@ -66,9 +66,11 @@ templates, not every Job the scripts create.
 
 ## Running on MicroShift (MINC)
 
-The suite also runs on a throwaway MicroShift cluster created by
-[MINC](https://github.com/minc-org/minc). The nightly `cluster (microshift)`
-workflow does this; locally:
+CI runs the suite against a throwaway MicroShift cluster, created inside the
+GitHub runner with [MINC](https://github.com/minc-org/minc)
+(`.github/workflows/cluster.yml`, manual + nightly): it creates the cluster,
+prepares it, runs the tests and uploads the transcript as an artifact. The same
+thing locally:
 
 ```bash
 minc create && minc generate-kubeconfig
