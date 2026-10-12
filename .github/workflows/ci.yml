@@ -61,8 +61,7 @@ jobs:
         run: |
           python3 -m venv "$HOME/venv"
           "$HOME/venv/bin/pip" install --quiet codespell==2.4.3
-          echo "$HOME/venv/bin" >> "$GITHUB_PATH"
-          codespell
+          "$HOME/venv/bin/codespell"
 
       - name: Links
         uses: lycheeverse/lychee-action@v2
