@@ -45,12 +45,7 @@ jobs:
       - name: Run the suite
         env:
           STORAGE_CLASS: local-path
-        run: |
-          # On MicroShift the StatefulSet loses its replica (spec.replicas=1,
-          # field manager "microshift") during a full run, which breaks the two
-          # tests that need a second pod after a restart (t06, t14). Those run on
-          # a real lab; this nightly covers the rest.
-          ./tests/run-all.sh t01 t02 t03 t04 t05 t09 t10 t12 t18 t19 t21 t22 | tee /tmp/suite.txt
+        run: ./tests/run-all.sh quick | tee /tmp/suite.txt
 
       - name: Upload the transcript
         if: always()

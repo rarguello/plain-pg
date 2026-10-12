@@ -43,12 +43,12 @@ oc kustomize "$OVERLAY" > "$TMP"
 # An absent role ConfigMap means a fresh install. Any API error is fatal.
 ROLE_OBJECT="$(oc -n "$NS" get configmap postgresql-role -o name --ignore-not-found)"
 if [ -n "$ROLE_OBJECT" ]; then
-  CUR_PRIMARY="$(oc -n "$NS" get cm postgresql-role -o jsonpath='{.data.PRIMARY_POD}')"
-  CUR_RW="$(oc -n "$NS" get svc postgresql-rw -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}')"
-  CUR_RO="$(oc -n "$NS" get svc postgresql-ro -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}')"
-  CUR_REPLICAS="$(oc -n "$NS" get sts postgresql -o jsonpath='{.spec.replicas}')"
-  [ -n "$CUR_PRIMARY" ] && [ -n "$CUR_RW" ] && [ -n "$CUR_RO" ] && [ -n "$CUR_REPLICAS" ] || {
-    echo "ERROR: incomplete live role, Service, or replica state; deploy aborted." >&2
+  CUR_PRIMARY="$(oc -n "$NS" get cm postgresql-role -o jsonpath='{.data.PRIMARY_POD}' || true)"
+  CUR_RW="$(oc -n "$NS" get svc postgresql-rw -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' || true)"
+  CUR_RO="$(oc -n "$NS" get svc postgresql-ro -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' || true)"
+  STS_OBJECT="$(oc -n "$NS" get sts postgresql -o name --ignore-not-found || true)"
+  [ -n "$CUR_PRIMARY" ] && [ -n "$CUR_RW" ] && [ -n "$CUR_RO" ] || {
+    echo "ERROR: incomplete live role or Service state; deploy aborted." >&2
     exit 1
   }
   if grep -q 'kind: HorizontalPodAutoscaler' "$TMP"; then
@@ -62,15 +62,18 @@ if [ -n "$ROLE_OBJECT" ]; then
     echo "ERROR: reapplying an existing deployment requires python3 and PyYAML." >&2
     exit 1
   }
-  # Drop the operational objects (role ConfigMap and routing Services) and the
-  # replica count. Keeping spec.replicas out of the applied object means the HPA
-  # (or whoever owns replicas) keeps owning it; server-side apply leaves absent
-  # fields alone instead of resetting them, so no stale count is ever written.
-  python3 - "$TMP" <<'PY'
+  # Drop the operational objects (role ConfigMap and routing Services). Keep
+  # spec.replicas out of the applied StatefulSet when it already exists, so the
+  # HPA (or whoever owns it) keeps owning it; server-side apply leaves absent
+  # fields alone. When the StatefulSet does NOT exist, keep replicas so it is
+  # created with the overlay's count instead of the API default of 1.
+  STRIP_REPLICAS=1
+  [ -n "$STS_OBJECT" ] || STRIP_REPLICAS=0
+  python3 - "$TMP" "$STRIP_REPLICAS" <<'PY'
 import sys
 import yaml
 
-path = sys.argv[1]
+path, strip = sys.argv[1], sys.argv[2] == "1"
 with open(path) as fh:
     docs = [doc for doc in yaml.safe_load_all(fh) if doc]
 static = []
@@ -82,13 +85,13 @@ for doc in docs:
         ("Service", "postgresql-ro"),
     }:
         continue
-    if key == ("StatefulSet", "postgresql"):
+    if key == ("StatefulSet", "postgresql") and strip:
         doc.get("spec", {}).pop("replicas", None)
     static.append(doc)
 with open(path, "w") as fh:
     yaml.safe_dump_all(static, fh, sort_keys=False, width=10**9)
 PY
-  echo "==> Applying $OVERLAY (preserving primary=$CUR_PRIMARY and replicas=$CUR_REPLICAS)"
+  echo "==> Applying $OVERLAY (preserving primary=$CUR_PRIMARY)"
   oc apply --server-side --force-conflicts -f "$TMP"
 else
   echo "==> Applying $OVERLAY (fresh deployment)"

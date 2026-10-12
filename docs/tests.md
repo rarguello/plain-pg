@@ -82,12 +82,9 @@ default, plus the Red Hat pull secret on the namespace's default
 ServiceAccount. The tests read the expected StorageClass from `STORAGE_CLASS`
 (default `lvms-vg1`, the lab's), so the nightly sets `STORAGE_CLASS=local-path`.
 
-Known MINC limitation: during a full run MicroShift scales the StatefulSet down
-to one replica (`spec.replicas=1`, field manager `microshift`), so `t06`
-(persistence) and `t14` (integrity) fail there — they need a second pod after a
-restart. The nightly therefore runs the rest (`t01`–`t05`, `t09`, `t10`, `t12`,
-`t18`, `t19`, `t21`, `t22`); the full suite stays on a real lab. The workflow
-reads the pull secret from the `RH_PULL_SECRET` repository secret.
+The nightly runs the `quick` subset; the destructive tests (failover, teardown,
+HPA) stay on a real lab. The workflow reads the pull secret from the
+`RH_PULL_SECRET` repository secret.
 
 ## Evidence
 
