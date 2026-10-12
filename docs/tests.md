@@ -64,6 +64,34 @@ templates, not every Job the scripts create.
   adds kubeconform, yamllint, markdownlint, codespell, lychee, actionlint and
   gitleaks.
 
+## Running on MicroShift (MINC)
+
+CI runs the suite against a throwaway MicroShift cluster, created inside the
+GitHub runner with [MINC](https://github.com/minc-org/minc)
+(`.github/workflows/cluster.yml`, manual + nightly): it creates the cluster,
+prepares it, runs the tests and uploads the transcript as an artifact. The same
+thing locally:
+
+```bash
+minc create && minc generate-kubeconfig
+PULL_SECRET=~/.pull-secret.json ./scripts/minc-up.sh   # storage + pull secret
+./tests/run-all.sh quick
+```
+
+MicroShift ships no StorageClass and does not wire a pull secret, so
+`minc-up.sh` adds a local-path provisioner and makes its StorageClass the
+default, plus the Red Hat pull secret on the namespace's default
+ServiceAccount. The tests read the expected StorageClass from `STORAGE_CLASS`
+(default `lvms-vg1`, the lab's), so the nightly sets `STORAGE_CLASS=local-path`.
+
+The nightly runs `t01`–`t05`, `t10`, `t12`, `t18`, `t19`, `t21`, `t22`. `t06`
+(persistence), `t09` (idempotency) and `t14` (integrity) pass locally on MINC but
+fail on a GitHub-hosted runner: replication does not resume fast enough after a
+primary restart, and MicroShift's server-side apply bumps the StatefulSet on the
+second apply. They stay on a real lab until that is understood. The destructive
+tests (failover, teardown, HPA) also stay on a real lab. The workflow reads the
+pull secret from the `RH_PULL_SECRET` repository secret.
+
 ## Evidence
 
 Raw output of full-suite runs:
