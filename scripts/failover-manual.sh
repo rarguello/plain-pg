@@ -48,7 +48,13 @@ case "$CANDIDATE" in
   *) echo "ERROR: only postgresql-0 or postgresql-1 can be primary; the HPA may remove higher ordinals." >&2
      exit 1 ;;
 esac
-if [ "$(pod_in_recovery "$CANDIDATE")" != "t" ]; then
+# Retry: under load the candidate can take a moment to answer.
+CANDIDATE_OK=0
+for _ in 1 2 3 4 5; do
+  [ "$(pod_in_recovery "$CANDIDATE")" = "t" ] && { CANDIDATE_OK=1; break; }
+  sleep 3
+done
+if [ "$CANDIDATE_OK" != "1" ]; then
   echo "ERROR: $CANDIDATE is not a reachable standby." >&2
   exit 1
 fi

@@ -1,0 +1,53 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Optional component: mounts a TLS certificate into the PostgreSQL pods. It does
+# NOT create the certificate: it expects
+#   - Secret   postgresql-tls     with tls.crt / tls.key
+#   - ConfigMap postgresql-tls-ca with ca.crt (or service-ca.crt)
+# The overlay decides who provides them:
+#   - overlays/lab-tls     lets OpenShift's service-ca issue them (annotation on
+#                          postgresql-hl);
+#   - overlays/lab-tls-byo expects you to create them yourself (bring your own
+#                          certificate).
+# The entrypoint turns TLS on only when the certificate is mounted
+# (ensure_tls_config in the base ConfigMap).
+#
+# Fresh install: the first start of a brand new primary runs initdb, so TLS is
+# picked up on the next pod restart. On an existing deployment, delete the pods
+# (updateStrategy is OnDelete) to apply it.
+
+patches:
+  - target:
+      kind: StatefulSet
+      name: postgresql
+    patch: |-
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value:
+          name: tls
+          secret:
+            secretName: postgresql-tls
+            defaultMode: 0640
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value:
+          name: tls-ca
+          configMap:
+            name: postgresql-tls-ca
+            defaultMode: 0644
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: {name: tls, mountPath: /etc/plain-pg/tls, readOnly: true}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: {name: tls-ca, mountPath: /etc/plain-pg/tls-ca, readOnly: true}
+      # libpq (the WAL receiver, psql, pg_dump...) uses TLS when the server
+      # offers it, and the entrypoint copies the CA to this path for clients
+      # that verify.
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: PGSSLMODE, value: prefer}
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: PGSSLROOTCERT, value: /var/lib/pgsql/data/userdata/tls/ca.crt}

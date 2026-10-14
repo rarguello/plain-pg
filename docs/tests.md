@@ -11,7 +11,7 @@ The suite runs against a real cluster; there are no mocks. Each test prints
 
 ## Coverage
 
-Coverage. Last full run against a real cluster: **23/23 tests · 233 checks · 0
+Coverage. Last full run against a real cluster: **28/28 tests · 267 checks · 0
 failures** (transcript in [Evidence](#evidence)).
 
 | Test | What it proves | Checks | Result |
@@ -39,25 +39,37 @@ failures** (transcript in [Evidence](#evidence)).
 | `t21_pg_security` | The app user cannot do DDL/superuser work; remote access needs the password | 7 | PASS |
 | `t22_read_balancing` | Reads through `-r` spread over all instances and return the same data | 4 | PASS |
 | `t23_hpa` | Under load the HPA grows the fleet and the new replica serves reads | 11 | PASS |
+| `t24_deploy_recreate` | `deploy.sh` recreates a deleted StatefulSet with the right replica count | 10 | PASS |
+| `t25_metrics` | The `postgres_exporter` reaches the database and serves metrics | 5 | PASS |
+| `t26_tls` | The service-ca certificate makes PostgreSQL serve TLS and replication uses it | 6 | PASS |
+| `t27_tls_byo` | A bring-your-own certificate (a tiny openssl PKI) serves TLS with `verify-full` | 5 | PASS |
+| `t28_external` | A NodePort on `-rw` reaches the primary, and the policy still blocks outsiders | 8 | PASS |
 
-Destructive tests (`t07`, `t08`, `t11`, `t13`, `t15`, `t16`, `t17`, `t23`) change
-the cluster but leave it consistent. `t11` deletes the PVCs and redeploys from
-scratch. `t23` waits for real HPA decisions and only runs from a fresh two-pod lab
-with `postgresql-0` as primary and no HPA; otherwise it **skips**. Tests that need
-`skopeo` and a pull secret (`t18`) also skip when it is missing. A `SKIP` is not a
-pass — read the summary, not just the exit code. `t19` covers the two CronJob pod
-templates, not every Job the scripts create.
+Destructive tests (`t07`, `t08`, `t11`, `t13`, `t15`, `t16`, `t17`, `t23`, `t24`,
+`t26`, `t27`, `t28`) change the cluster but leave it consistent. `t11` deletes the
+PVCs and redeploys from scratch; `t24` deletes the StatefulSet and checks that
+`deploy.sh` recreates it with the right replica count; `t26`/`t27` mount a TLS
+certificate and recreate the pods; `t28` makes `postgresql-rw` a NodePort and
+restores it. `t23` waits for real HPA decisions and only runs from a fresh two-pod
+lab with `postgresql-0` as primary and no HPA; `t25` needs the
+`monitoring.coreos.com` CRDs and `t26` the service-ca controller, and both
+**skip** without them; `t27` skips without `openssl`. Tests that need `skopeo` and
+a pull secret (`t18`) also skip when it is missing. A `SKIP` is not a pass — read
+the summary, not just the exit code. `t19` covers the two CronJob pod templates,
+not every Job the scripts create.
 
 ## Requirements and static checks
 
 - `oc` logged in with permission to create namespaces; `skopeo` and a pull secret
-  for `t18`; a default StorageClass with `WaitForFirstConsumer`.
+  for `t18`; `openssl` for `t27`; a default StorageClass with
+  `WaitForFirstConsumer`; the `monitoring.coreos.com` CRDs for `t25` and the
+  service-ca controller for `t26` (both skip without them).
 - `run-all.sh` deploys (or re-applies) the lab first with `scripts/deploy.sh`, so
   the suite works from scratch. That script needs `oc` and, when the lab already
   exists, Python with PyYAML, and it generates a throwaway
   `postgresql-credentials` Secret from gitignored `secrets/` (a real deploy
   creates it by hand; see `operations.md`).
-- Without a cluster, `make lint` runs shellcheck, renders the three overlays, and
+- Without a cluster, `make lint` runs shellcheck, renders the six overlays, and
   validates the embedded scripts (`tools/check-scripts.py`) and the AGENTS.md hard
   rules — pinned UBI image, no operators, namespace, auxiliary-pod labels,
   PodSecurity — via `tools/check-policies.py`. CI (`.github/workflows/ci.yml`)
@@ -95,6 +107,6 @@ pull secret from the `RH_PULL_SECRET` repository secret.
 ## Evidence
 
 Raw output of full-suite runs:
-[`evidence/2026-10-11-full-suite.txt`](evidence/2026-10-11-full-suite.txt).
+[`evidence/2026-10-13-full-suite.txt`](evidence/2026-10-13-full-suite.txt).
 The per-test check counts are in that transcript; the summary at the end is
 authoritative. It is historical output — rerun the suite after code changes.

@@ -37,7 +37,10 @@ for arg in "$@"; do
 done
 
 TMP="$(mktemp)"
-trap 'rm -f "$TMP"' EXIT
+STS_PATCH="$(mktemp)"
+RW_PATCH="$(mktemp)"
+RO_PATCH="$(mktemp)"
+trap 'rm -f "$TMP" "$STS_PATCH" "$RW_PATCH" "$RO_PATCH"' EXIT
 oc kustomize "$OVERLAY" > "$TMP"
 
 # An absent role ConfigMap means a fresh install. Any API error is fatal.
@@ -62,37 +65,56 @@ if [ -n "$ROLE_OBJECT" ]; then
     echo "ERROR: reapplying an existing deployment requires python3 and PyYAML." >&2
     exit 1
   }
-  # Drop the operational objects (role ConfigMap and routing Services). Keep
-  # spec.replicas out of the applied StatefulSet when it already exists, so the
-  # HPA (or whoever owns it) keeps owning it; server-side apply leaves absent
-  # fields alone. When the StatefulSet does NOT exist, keep replicas so it is
-  # created with the overlay's count instead of the API default of 1.
-  STRIP_REPLICAS=1
-  [ -n "$STS_OBJECT" ] || STRIP_REPLICAS=0
-  python3 - "$TMP" "$STRIP_REPLICAS" <<'PY'
+  # The role ConfigMap is dropped: PRIMARY_POD and AUTO_FAILOVER belong to the
+  # failover scripts. The StatefulSet and the two routing Services are applied
+  # with MERGE PATCHES that omit the operational fields -- spec.replicas for the
+  # StatefulSet, spec.selector for the Services -- so a live failover and a live
+  # replica count are preserved while everything else (for example the Service
+  # `type` of overlays/lab-external) still applies. Server-side apply would prune
+  # a field as soon as this script had owned it (and the API would re-default
+  # spec.replicas to 1).
+  python3 - "$TMP" "$STS_PATCH" "$RW_PATCH" "$RO_PATCH" \
+    "$([ -n "$STS_OBJECT" ] && echo 1 || echo 0)" <<'PY'
+import json
 import sys
 import yaml
 
-path, strip = sys.argv[1], sys.argv[2] == "1"
+path, sts_patch, rw_patch, ro_patch, existing = sys.argv[1:6]
+existing = existing == "1"
 with open(path) as fh:
     docs = [doc for doc in yaml.safe_load_all(fh) if doc]
 static = []
 for doc in docs:
     key = (doc.get("kind"), doc.get("metadata", {}).get("name"))
-    if key in {
-        ("ConfigMap", "postgresql-role"),
-        ("Service", "postgresql-rw"),
-        ("Service", "postgresql-ro"),
-    }:
+    if key == ("ConfigMap", "postgresql-role"):
         continue
-    if key == ("StatefulSet", "postgresql") and strip:
+    if key == ("StatefulSet", "postgresql") and existing:
         doc.get("spec", {}).pop("replicas", None)
+        json.dump(doc, open(sts_patch, "w"))
+        continue
+    if key in {("Service", "postgresql-rw"), ("Service", "postgresql-ro")}:
+        # Preserve the live selector (a failover owns it), but make the rest of
+        # the spec authoritative: `type` defaults to ClusterIP when the overlay
+        # does not set it, and a merge patch replaces the ports list wholesale,
+        # which is what removes a leftover nodePort.
+        spec = doc.setdefault("spec", {})
+        spec.pop("selector", None)
+        spec.setdefault("type", "ClusterIP")
+        if spec["type"] == "ClusterIP":
+            spec["externalTrafficPolicy"] = None   # null removes it
+        json.dump(doc, open(rw_patch if key[1].endswith("-rw") else ro_patch, "w"))
+        continue
     static.append(doc)
 with open(path, "w") as fh:
     yaml.safe_dump_all(static, fh, sort_keys=False, width=10**9)
 PY
   echo "==> Applying $OVERLAY (preserving primary=$CUR_PRIMARY)"
   oc apply --server-side --force-conflicts -f "$TMP"
+  if [ -s "$STS_PATCH" ]; then
+    oc -n "$NS" patch sts postgresql --type=merge --patch-file "$STS_PATCH" >/dev/null
+  fi
+  [ -s "$RW_PATCH" ] && oc -n "$NS" patch svc postgresql-rw --type=merge --patch-file "$RW_PATCH" >/dev/null
+  [ -s "$RO_PATCH" ] && oc -n "$NS" patch svc postgresql-ro --type=merge --patch-file "$RO_PATCH" >/dev/null
 else
   echo "==> Applying $OVERLAY (fresh deployment)"
   oc apply -f "$TMP"

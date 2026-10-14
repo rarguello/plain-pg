@@ -1,0 +1,26 @@
+###############################################################################
+# servicemonitor.yaml
+#
+# Tells OpenShift's monitoring Prometheus to scrape the exporter. It needs the
+# monitoring.coreos.com CRDs, so it only applies on a cluster that has the
+# monitoring stack (the lab does; MicroShift does not). The component also
+# labels the namespace with openshift.io/cluster-monitoring=true.
+###############################################################################
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: postgresql
+  labels:
+    app.kubernetes.io/name: pg-metrics
+    app.kubernetes.io/instance: plain-pg
+    app.kubernetes.io/part-of: plain-pg
+    app.kubernetes.io/component: metrics
+    prometheus: k8s
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pg-metrics
+      app.kubernetes.io/instance: plain-pg
+  endpoints:
+    - port: metrics
+      interval: 30s

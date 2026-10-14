@@ -87,6 +87,47 @@ data:
       fi
     }
 
+    # TLS: the components/tls component mounts a service-ca certificate at
+    # /etc/plain-pg/tls. When it is there we copy it into PGDATA (with the
+    # permissions PostgreSQL requires) and write $PGDATA/tls.conf; when it is not
+    # we remove tls.conf, so TLS turns off on the next restart. tls.conf is pulled
+    # in with include_if_exists, so postgresql.conf is never edited.
+    ensure_tls_config() {
+      local tlsconf="$PGDATA/tls.conf"
+      local src="/etc/plain-pg/tls" cadir="/etc/plain-pg/tls-ca"
+      if [ -f "$src/tls.crt" ] && [ -f "$src/tls.key" ]; then
+        mkdir -p "$PGDATA/tls"
+        cp -f "$src/tls.crt" "$PGDATA/tls/tls.crt"; chmod 0644 "$PGDATA/tls/tls.crt"
+        cp -f "$src/tls.key" "$PGDATA/tls/tls.key"; chmod 0600 "$PGDATA/tls/tls.key"
+        # The CA comes from service-ca (service-ca.crt) or from a user-provided
+        # ConfigMap (ca.crt); either way it ends up at $PGDATA/tls/ca.crt.
+        local ca=""
+        for f in "$cadir/ca.crt" "$cadir/service-ca.crt"; do
+          [ -f "$f" ] && { ca="$f"; break; }
+        done
+        {
+          echo "ssl = on"
+          echo "ssl_cert_file = '$PGDATA/tls/tls.crt'"
+          echo "ssl_key_file = '$PGDATA/tls/tls.key'"
+          if [ -n "$ca" ]; then
+            cp -f "$ca" "$PGDATA/tls/ca.crt"; chmod 0644 "$PGDATA/tls/ca.crt"
+            echo "ssl_ca_file = '$PGDATA/tls/ca.crt'"
+          fi
+        } > "$tlsconf"
+        log "TLS enabled (certificate mounted)"
+      else
+        rm -f "$tlsconf"
+      fi
+      local marker="# plain-pg: tls include"
+      if ! grep -qF "$marker" "$PGDATA/postgresql.auto.conf" 2>/dev/null; then
+        {
+          echo ""
+          echo "$marker"
+          echo "include_if_exists '$tlsconf'"
+        } >> "$PGDATA/postgresql.auto.conf"
+      fi
+    }
+
     wait_for_primary() {
       local tries=0 max="${WAIT_PRIMARY_RETRIES:-120}"
       while [ "$tries" -lt "$max" ]; do
@@ -135,6 +176,7 @@ data:
 
       generate_postgresql_recovery_config   # primary_conninfo -> current primary
       ensure_recovery_include
+      ensure_tls_config
       touch "$PGDATA/standby.signal"
 
       log "starting as REPLICA (hot standby)"
@@ -152,6 +194,7 @@ data:
       fi
       if [ -f "$PGDATA/PG_VERSION" ]; then
         ensure_recovery_include
+        ensure_tls_config
       else
         log "PGDATA empty: run-postgresql will run initdb and create users"
       fi

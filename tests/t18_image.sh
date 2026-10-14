@@ -20,12 +20,17 @@ POD_IMAGEID="$(oc -n "$NS" get pod "$(primary_pod)" -o jsonpath='{.status.contai
 check_match "the imageID resolves to the same repository" \
   "^registry\.redhat\.io/rhel10/postgresql-18@sha256:[0-9a-f]{64}$" "$POD_IMAGEID"
 
+# The pinned digest must be a real, resolvable image. Whether it is still the
+# newest `:latest` is drift, not correctness -- and `:latest` moves, so comparing
+# against it makes this test fail whenever upstream publishes a new build. Drift
+# belongs in a scheduled job that opens a PR, not in the suite.
 AUTHFILE="${AUTHFILE:-$HOME/.pull-secret.json}"
 if command -v skopeo >/dev/null 2>&1 && [ -f "$AUTHFILE" ]; then
-  LIVE="$(skopeo inspect --authfile "$AUTHFILE" docker://registry.redhat.io/rhel10/postgresql-18:latest 2>/dev/null | grep -oE 'sha256:[0-9a-f]{64}' | head -1)"
-  check_eq "the pinned digest is the current registry one" "$LIVE" "$PIN"
+  check "the pinned reference resolves in the registry" \
+    skopeo inspect --authfile "$AUTHFILE" \
+    "docker://registry.redhat.io/rhel10/postgresql-18@$PIN"
 else
-  c_skip "skopeo or the authfile are not available; not compared with the registry"
+  c_skip "skopeo or the authfile are not available; the pin was not resolved"
 fi
 
 # The image is PostgreSQL 18 on UBI10

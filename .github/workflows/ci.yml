@@ -33,7 +33,7 @@ jobs:
 
       - name: Render the overlays
         run: |
-          for o in lab lab-manual lab-autoscale; do
+          for o in lab lab-manual lab-autoscale lab-metrics lab-tls lab-tls-byo lab-external; do
             kustomize build "manifests/overlays/$o" > "/tmp/$o.yaml"
           done
 
@@ -41,10 +41,10 @@ jobs:
         run: python3 tools/check-scripts.py /tmp/lab.yaml /tmp/lab-manual.yaml
 
       - name: Policies (AGENTS.md hard rules)
-        run: python3 tools/check-policies.py /tmp/lab.yaml /tmp/lab-manual.yaml /tmp/lab-autoscale.yaml
+        run: python3 tools/check-policies.py /tmp/lab.yaml /tmp/lab-manual.yaml /tmp/lab-autoscale.yaml /tmp/lab-metrics.yaml /tmp/lab-tls.yaml /tmp/lab-tls-byo.yaml /tmp/lab-external.yaml
 
       - name: Kubernetes schema (kubeconform)
-        run: kubeconform -summary -ignore-missing-schemas /tmp/lab.yaml /tmp/lab-manual.yaml /tmp/lab-autoscale.yaml
+        run: kubeconform -summary -ignore-missing-schemas /tmp/lab.yaml /tmp/lab-manual.yaml /tmp/lab-autoscale.yaml /tmp/lab-metrics.yaml /tmp/lab-tls.yaml /tmp/lab-tls-byo.yaml /tmp/lab-external.yaml
 
       - name: yamllint
         run: yamllint -f parsable manifests .github

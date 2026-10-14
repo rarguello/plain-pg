@@ -91,7 +91,12 @@ sleep 6   # let a few rows be written before the failure
 
 echo "  (failover with the writer active)"
 TS_FENCE="$(date +%s%N)"
-FORCE=1 "$ROOT_DIR/scripts/failover-manual.sh" "$REPLICA" >/dev/null 2>&1 || c_fail "the failover failed"
+FAILOVER_LOG="$(mktemp)"
+if ! FORCE=1 "$ROOT_DIR/scripts/failover-manual.sh" "$REPLICA" >"$FAILOVER_LOG" 2>&1; then
+  c_fail "the failover failed"
+  sed 's/^/        /' "$FAILOVER_LOG" >&2
+fi
+rm -f "$FAILOVER_LOG"
 
 is_primary() { [ "$(pod_in_recovery "$1")" = "f" ]; }
 wait_for 300 "$REPLICA is primary" is_primary "$REPLICA"
@@ -159,7 +164,12 @@ check_eq "the database can be written to after the failover" "1" \
 oc -n "$NS" delete job "$WRITER" --ignore-not-found >/dev/null 2>&1 || true
 
 echo "  (failback)"
-FORCE=1 "$ROOT_DIR/scripts/failover-manual.sh" "$PRIMARY" >/dev/null 2>&1 || c_fail "the failback failed"
+FAILBACK_LOG="$(mktemp)"
+if ! FORCE=1 "$ROOT_DIR/scripts/failover-manual.sh" "$PRIMARY" >"$FAILBACK_LOG" 2>&1; then
+  c_fail "the failback failed"
+  sed 's/^/        /' "$FAILBACK_LOG" >&2
+fi
+rm -f "$FAILBACK_LOG"
 wait_for 300 "$PRIMARY is primary again" is_primary "$PRIMARY"
 wait_for 300 "$REPLICA is standby again" bash -c "[ \"\$(oc -n $NS get pod $REPLICA -o jsonpath='{.status.containerStatuses[0].ready}')\" = true ]"
 check_eq "$REPLICA is standby again" "t" "$(pod_in_recovery "$REPLICA")"

@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Same as overlays/lab plus TLS for PostgreSQL, with the certificate issued by
+# OpenShift's service-ca (nothing is stored in git).
+# For your own certificate, use overlays/lab-tls-byo instead.
+
+namespace: plain-pg
+
+resources:
+  - ../lab
+  - ca-configmap.yaml
+
+components:
+  - ../../components/tls
+
+patches:
+  # service-ca writes tls.crt/tls.key into the Secret postgresql-tls, and the CA
+  # bundle into the (empty, annotated) ConfigMap postgresql-tls-ca.
+  - target:
+      kind: Service
+      name: postgresql-hl
+    patch: |-
+      - op: add
+        path: /metadata/annotations/service.beta.openshift.io~1serving-cert-secret-name
+        value: postgresql-tls

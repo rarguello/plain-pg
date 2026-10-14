@@ -1,0 +1,75 @@
+###############################################################################
+# deployment.yaml
+#
+# postgres_exporter: PostgreSQL metrics for Prometheus. This is an optional
+# component (components/metrics); it is not part of the base.
+#
+# The exporter image is not a UBI image (Red Hat does not publish one). Like
+# every other image here it is pinned by digest; tools/check-policies.py keeps a
+# documented allowlist for it.
+#
+# Credentials: it scrapes through postgresql-rw, so it follows a failover, and
+# connects as the superuser because the default collector queries read
+# pg_stat_*. For production, create a dedicated role with pg_monitor and point
+# DATA_SOURCE_USER at it.
+###############################################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql-metrics
+  labels:
+    app.kubernetes.io/name: pg-metrics
+    app.kubernetes.io/instance: plain-pg
+    app.kubernetes.io/part-of: plain-pg
+    app.kubernetes.io/component: metrics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pg-metrics
+      app.kubernetes.io/instance: plain-pg
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pg-metrics
+        app.kubernetes.io/instance: plain-pg
+        app.kubernetes.io/part-of: plain-pg
+        app.kubernetes.io/component: metrics
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres-exporter
+          image: quay.io/prometheuscommunity/postgres-exporter@sha256:38606faa38c54787525fb0ff2fd6b41b4cfb75d455c1df294927c5f611699b17
+          env:
+            - name: DATA_SOURCE_URI
+              value: postgresql-rw:5432/postgres?sslmode=disable
+            - name: DATA_SOURCE_USER
+              value: postgres
+            - name: DATA_SOURCE_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-credentials
+                  key: POSTGRESQL_ADMIN_PASSWORD
+          ports:
+            - name: metrics
+              containerPort: 9187
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi

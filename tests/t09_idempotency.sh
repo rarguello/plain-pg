@@ -11,18 +11,21 @@ if oc -n "$NS" get hpa postgresql-read >/dev/null 2>&1; then
   exit $?
 fi
 
-# resourceVersion of the key objects: it is the real idempotency signal.
-# (The word "configured/unchanged" from `oc apply` is not used: for a
-#  StatefulSet with volumeClaimTemplates, kubectl/oc always prints
-#  "configured" even when nothing changes. See docs/operations.md.)
+# A stable "did the spec change?" signal per object: metadata.generation when the
+# object has it (it only moves on spec changes), else metadata.resourceVersion.
+# The resourceVersion of a CronJob moves every time it starts a Job (its status),
+# so it cannot be the idempotency signal. (The word "configured/unchanged" from
+# `oc apply` is not used either: for a StatefulSet with volumeClaimTemplates,
+# kubectl/oc always prints "configured" even when nothing changes.)
 key_rvs() {
-  local r rv
+  local r gen rv
   for r in sts/postgresql svc/postgresql-hl svc/postgresql-rw svc/postgresql-ro \
            cm/postgresql-scripts cm/postgresql-role cronjob/postgresql-failover \
            networkpolicy/postgresql-ingress; do
+    gen="$(oc -n "$NS" get "$r" -o jsonpath='{.metadata.generation}' 2>/dev/null || true)"
     rv="$(oc -n "$NS" get "$r" -o jsonpath='{.metadata.resourceVersion}' 2>/dev/null || true)"
     [ -n "$rv" ] || echo "MISSING:$r"      # an empty lookup must not pass silently
-    echo "$rv"
+    if [ -n "$gen" ]; then echo "$gen"; else echo "$rv"; fi
   done
 }
 
@@ -31,7 +34,7 @@ env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$OVERLAY" >/dev/null
 BEFORE="$(key_rvs)"
 env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$OVERLAY" >/dev/null
 AFTER="$(key_rvs)"
-check_eq "a second apply modifies no object (stable resourceVersion)" "$BEFORE" "$AFTER"
+check_eq "a second apply modifies no object (stable generation/resourceVersion)" "$BEFORE" "$AFTER"
 
 # The kustomize render is deterministic
 A="$(oc kustomize "$OVERLAY" 2>/dev/null | sha256sum)"

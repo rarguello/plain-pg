@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Same as overlays/lab plus EXTERNAL access to the primary through a NodePort.
+#
+# Read the security notes in docs/operations.md first: this publishes PostgreSQL
+# on every node's IP (on a single-node lab that is the node itself, which here has
+# a PUBLIC address). The NetworkPolicy keeps blocking clients from outside the
+# namespace, so an external client also needs an `ipBlock` allowlist.
+
+namespace: plain-pg
+
+resources:
+  - ../lab
+
+patches:
+  # The primary's Service becomes a NodePort. A failover already repoints its
+  # selector, so external clients follow the new primary automatically.
+  # externalTrafficPolicy: Local preserves the client's source IP, which is what
+  # the NetworkPolicy `ipBlock` matches (Cluster would SNAT it to the node).
+  - target:
+      kind: Service
+      name: postgresql-rw
+    patch: |-
+      - op: add
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/externalTrafficPolicy
+        value: Local
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 30432

@@ -26,4 +26,4 @@ patches:
 # Update the digest: see scripts/update-digest.sh
 images:
   - name: registry.redhat.io/rhel10/postgresql-18
-    digest: sha256:8b0fd3d5aa1c6ae25da4dc4dfd04fe9de2a47359b57aa4c9b82cede2c3da814a
+    digest: sha256:2e04d97c53cd19e9fc855195f0585925fd2a704e42cb158d9c96b57747631882

@@ -60,6 +60,81 @@ deployment. The other scripts (`verify-replication.sh`, `failover-manual.sh`,
 `backup-now.sh`, `restore-backup.sh`, `reseed-replica.sh`, `read-load.sh`) are the
 day-2 helpers; see `tests.md`.
 
+## Metrics
+
+`components/metrics` (overlay `lab-metrics`) adds a `postgres_exporter`, a
+`Service` and a `ServiceMonitor`, so OpenShift's monitoring scrapes PostgreSQL:
+
+```bash
+oc apply -k manifests/overlays/lab-metrics
+```
+
+It needs the `monitoring.coreos.com` CRDs (the monitoring stack; MicroShift does
+not ship them, and the component labels the namespace
+`openshift.io/cluster-monitoring=true`). The exporter connects through
+`postgresql-rw`, so it follows a failover, as the superuser because the default
+queries read `pg_stat_*`; for production create a role with `pg_monitor` and
+point `DATA_SOURCE_USER` at it.
+
+## TLS
+
+`components/tls` mounts a certificate into the pods; the entrypoint turns TLS on
+only when it is there (`ssl=on`, plus the CA for verification). Two overlays
+provide the certificate:
+
+- **`lab-tls`** — OpenShift's **service-ca** issues it for `postgresql-hl` into
+  the Secret `postgresql-tls` and injects the CA into `postgresql-tls-ca`.
+  Nothing is stored in git.
+- **`lab-tls-byo`** — **your own certificate**: create the two objects, apply the
+  overlay and recreate the pods:
+
+```bash
+oc -n plain-pg create secret tls postgresql-tls --cert=tls.crt --key=tls.key
+oc -n plain-pg create configmap postgresql-tls-ca --from-file=ca.crt
+oc apply -k manifests/overlays/lab-tls-byo
+oc -n plain-pg delete pod postgresql-1 postgresql-0   # OnDelete: recreate to mount it
+```
+
+The certificate must be valid for the names clients use (the headless per-pod
+DNS and the `-rw`/`-ro` Services). Clients verify with `sslmode=verify-ca`, or
+`verify-full` with your own SANs, and `sslrootcert` pointing at the CA. The WAL
+receiver, `psql` and `pg_dump` use TLS when the server offers it
+(`PGSSLMODE=prefer`). TLS is offered, not required; to require it, add a
+`hostssl` line to `pg_hba.conf` and drop the plaintext `host` lines. On a fresh
+install the first `initdb` does not pick TLS up: restart the pods once.
+
+## External access (NodePort)
+
+`overlays/lab-external` publishes the primary through a **NodePort** on
+`postgresql-rw` (port 30432), so a client outside the cluster reaches it at
+`<node-ip>:30432`. A failover already repoints the selector, so external clients
+follow the new primary.
+
+```bash
+./scripts/deploy.sh manifests/overlays/lab-external
+oc get nodes -o wide                       # the node address
+psql -h <node-ip> -p 30432 -U app -d appdb
+```
+
+**Security.** This publishes PostgreSQL on every node's address, and two things
+must line up:
+
+- **The NetworkPolicy still blocks external clients.** Add an `ipBlock` for the
+  client network, as narrow as possible. The Service uses
+  `externalTrafficPolicy: Local`, so the policy matches the client's real IP:
+
+```bash
+oc -n plain-pg patch networkpolicy postgresql-ingress --type merge -p \
+  '{"spec":{"ingress":[{"from":[{"ipBlock":{"cidr":"203.0.113.0/24"}}],"ports":[{"protocol":"TCP","port":5432}]}]}}'
+```
+
+- **Use TLS.** Combine it with `lab-tls` or `lab-tls-byo`; otherwise the password
+  and the data cross the network in clear text. Clients then use
+  `sslmode=require` (or `verify-ca` with the CA).
+
+Prefer a **private** node address, or a `LoadBalancer`/bastion with a firewall
+allowlist, over a public one: a database on a public IP is scanned constantly.
+
 ## Verify and connect
 
 ```bash

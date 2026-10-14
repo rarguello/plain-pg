@@ -61,8 +61,8 @@
   [PASS] the replica is in 'streaming' state
   [PASS] sync_state is async or sync
   [PASS] the replay lag is 0 bytes
-  [PASS] row 'repl-1791760446-2644' appears on the replica
-  [PASS] row 'repl-1791760446-2644' is on the primary
+  [PASS] row 'repl-1792000187-11740' appears on the replica
+  [PASS] row 'repl-1792000187-11740' is on the primary
   [PASS] the replica REJECTS writes (read-only)
   [PASS] the replica can read the replicated table
 
@@ -110,18 +110,18 @@
 == t06_persistence.sh
 ═══════════════════════════════════════════════════════════════════════════
 ### t06 persistence and restarts
-  [PASS] row 'persist-1791760544-3374' replicates
+  [PASS] row 'persist-1792000282-11797' replicates
   (restarting the replica postgresql-1)
   [PASS] the replica becomes Ready again
   [PASS] the replica keeps its PVC (same UID)
   [PASS] the replica did NOT re-seed (no 'wiping PGDATA' in logs)
   [PASS] the replica is still standby after restarting
-  [PASS] row 'persist-1791760544-3374' is still on the replica
+  [PASS] row 'persist-1792000282-11797' is still on the replica
   [PASS] replication resumes after restarting the replica
   (restarting the primary postgresql-0)
   [PASS] the primary becomes Ready again
   [PASS] the primary is still primary
-  [PASS] row 'persist-1791760544-3374' is still on the primary
+  [PASS] row 'persist-1792000282-11797' is still on the primary
   [PASS] replication resumes after restarting the primary
 
   ---- summary: PASS=11 FAIL=0 SKIP=0
@@ -130,14 +130,14 @@
 == t07_failover_manual.sh
 ═══════════════════════════════════════════════════════════════════════════
 ### t07 manual failover (round trip)
-  [PASS] row 'fo-1791760618-5487' replicates before the failover
+  [PASS] row 'fo-1792000324-10194' replicates before the failover
   (running scripts/failover-manual.sh postgresql-1)
 Failover: postgresql-0 (primary) -> postgresql-1 (replica)
 [0/5] Disabling AUTO_FAILOVER while the operation lasts
 [1/5] ConfigMap postgresql-role: PRIMARY_POD=postgresql-1
 [2/5] Services: -rw -> postgresql-1, -ro -> postgresql-0
 [3/5] Fencing of the ex-primary postgresql-0
-      deleting postgresql-0 (uid d6a23619) and waiting for its termination
+      deleting postgresql-0 (uid a5677759) and waiting for its termination
       postgresql-0 recreated (new uid)
 [4/5] Recreating pod postgresql-1 so that it promotes
 [5/5] Waiting for postgresql-1 to become primary...
@@ -163,7 +163,7 @@ Failover: postgresql-1 (primary) -> postgresql-0 (replica)
 [1/5] ConfigMap postgresql-role: PRIMARY_POD=postgresql-0
 [2/5] Services: -rw -> postgresql-0, -ro -> postgresql-1
 [3/5] Fencing of the ex-primary postgresql-1
-      deleting postgresql-1 (uid f9b7287a) and waiting for its termination
+      deleting postgresql-1 (uid 62db64d9) and waiting for its termination
       postgresql-1 recreated (new uid)
 [4/5] Recreating pod postgresql-0 so that it promotes
 [5/5] Waiting for postgresql-0 to become primary...
@@ -198,7 +198,7 @@ Failover: postgresql-1 (primary) -> postgresql-0 (replica)
 [1/5] ConfigMap postgresql-role: PRIMARY_POD=postgresql-0
 [2/5] Services: -rw -> postgresql-0, -ro -> postgresql-1
 [3/5] Fencing of the ex-primary postgresql-1
-      deleting postgresql-1 (uid 57a10454) and waiting for its termination
+      deleting postgresql-1 (uid 61ba65ab) and waiting for its termination
       postgresql-1 recreated (new uid)
 [4/5] Recreating pod postgresql-0 so that it promotes
 [5/5] Waiting for postgresql-0 to become primary...
@@ -218,7 +218,7 @@ Verify with: ./scripts/verify-replication.sh
 == t09_idempotency.sh
 ═══════════════════════════════════════════════════════════════════════════
 ### t09 idempotency
-  [PASS] a second apply modifies no object (stable resourceVersion)
+  [PASS] a second apply modifies no object (stable generation/resourceVersion)
   [PASS] kustomize always produces the same render
   [PASS] deploy.sh re-runs without error
   [PASS] the image is still pinned by digest
@@ -279,7 +279,7 @@ Verify with: ./scripts/verify-replication.sh
   [PASS] the backup ends OK
   [PASS] the backup generated the globals file
   [PASS] the backup generated a dump
-  (restore of 20261011-232212-appdb.dump into a new database)
+  (restore of 20261014-182231-appdb.dump into a new database)
   [PASS] the restore ends OK
   [PASS] the restored backup contains the control row
   [PASS] the restore refuses to overwrite an existing database
@@ -342,7 +342,7 @@ Verify with: ./scripts/verify-replication.sh
   [PASS] postgresql-1 is primary
   [PASS] the 100 previous records survived
   (waiting for the writer)
-  confirmed before the failover: 20 | after: 226 | lost: 0
+  confirmed before the failover: 23 | after: 217 | lost: 0
   [PASS] what is lost is a contiguous suffix (no scattered divergence)
   [PASS] not all data confirmed before the failover was lost
   [PASS] exactly one pod is primary at the end
@@ -374,7 +374,7 @@ Verify with: ./scripts/verify-replication.sh
   [PASS] the StatefulSet uses the pinned digest
   [PASS] the pod runs exactly that reference
   [PASS] the imageID resolves to the same repository
-  [PASS] the pinned digest is the current registry one
+  [PASS] the pinned reference resolves in the registry
   [PASS] the image declares PLATFORM el10
   [PASS] postgres is 18.x
 
@@ -434,8 +434,8 @@ Verify with: ./scripts/verify-replication.sh
 ### t22 read load balancing (postgresql-r)
   [PASS] postgresql-r selects every DB pod
     distribution over 40 connections (ip count):
-      10.128.1.233 22
-      10.128.1.234 18
+      10.128.1.15 25
+      10.128.1.16 15
   [PASS] all instances answered at least one connection
   [PASS] no instance is starved (each got >= 4 of 40)
   [PASS] every instance returns the same replicated row
@@ -458,10 +458,10 @@ NOTICE:  table "pgbench_history" does not exist, skipping
 NOTICE:  table "pgbench_tellers" does not exist, skipping
 creating tables...
 generating data (client-side)...
-100000 of 100000 tuples (100%) of pgbench_accounts done (elapsed 0.02 s, remaining 0.00 s)
+100000 of 100000 tuples (100%) of pgbench_accounts done (elapsed 0.04 s, remaining 0.00 s)
 vacuuming...
 creating primary keys...
-done in 0.18 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0.07 s, vacuum 0.04 s, primary keys 0.06 s).
+done in 0.20 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0.08 s, vacuum 0.04 s, primary keys 0.06 s).
   [PASS] the HPA grows the fleet under read load
     fleet grew to 3 pods (new: postgresql-2)
   [PASS] postgresql-2 becomes Ready
@@ -476,7 +476,87 @@ done in 0.18 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0
   ---- summary: PASS=11 FAIL=0 SKIP=0
 
 ═══════════════════════════════════════════════════════════════════════════
-== SUMMARY  (1223s)
+== t24_deploy_recreate.sh
+═══════════════════════════════════════════════════════════════════════════
+### t24 deploy.sh recreates a missing StatefulSet
+  [PASS] the role ConfigMap exists
+  [PASS] the StatefulSet starts at 2 replicas
+  starting state: primary=postgresql-0 replicas=2
+  (deleting the StatefulSet, keeping the ConfigMap and the Services)
+  [PASS] the StatefulSet is gone
+  [PASS] deploy.sh recreates it and waits for the pods
+  [PASS] the recreated StatefulSet has 2 replicas
+  [PASS] a second deploy keeps 2 replicas
+  [PASS] the declared primary is unchanged
+  [PASS] the two pods are Ready again
+  [PASS] postgresql-0 is primary again
+  [PASS] postgresql-1 is standby again
+
+  ---- summary: PASS=10 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t25_metrics.sh
+═══════════════════════════════════════════════════════════════════════════
+### t25 metrics exporter
+  (deploying the metrics component)
+  [PASS] the exporter Deployment becomes Available
+  [PASS] the metrics Service exists
+  [PASS] the ServiceMonitor exists
+  [PASS] the exporter reports pg_up 1 (it reached the primary)
+  [PASS] the exporter exposes a database size metric
+
+  ---- summary: PASS=5 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t26_tls.sh
+═══════════════════════════════════════════════════════════════════════════
+### t26 TLS (service-ca)
+  (deploying the tls component)
+  [PASS] the service-ca issues the certificate
+  [PASS] the CA bundle is injected into the ConfigMap
+  (recreating the pods to mount the certificate)
+  [PASS] the two pods are Ready again
+  [PASS] PostgreSQL reports ssl=on
+  [PASS] the replication connection uses TLS
+  [PASS] a client that verifies the CA connects through -rw
+
+  ---- summary: PASS=6 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t27_tls_byo.sh
+═══════════════════════════════════════════════════════════════════════════
+### t27 TLS (bring your own certificate)
+  (generating a tiny PKI with openssl)
+  (deploying the bring-your-own overlay)
+  [PASS] the service-ca annotation is gone from postgresql-hl
+  (creating the Secret and the ConfigMap by hand)
+  (recreating the pods to mount our certificate)
+  [PASS] the two pods are Ready again
+  [PASS] PostgreSQL reports ssl=on
+  [PASS] the replication connection uses TLS
+  [PASS] a client verifying CA and hostname connects through -rw
+
+  ---- summary: PASS=5 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t28_external.sh
+═══════════════════════════════════════════════════════════════════════════
+### t28 external access (NodePort)
+  [PASS] the node has an address
+  (deploying the external-access overlay)
+  [PASS] postgresql-rw is a NodePort
+  [PASS] it uses nodePort 30432
+  [PASS] it keeps selecting the primary
+  [PASS] externalTrafficPolicy is Local
+  [PASS] the NodePort reaches the primary
+  [PASS] the NetworkPolicy has no external ipBlock allow
+  (restoring the ClusterIP Service)
+  [PASS] postgresql-rw is a ClusterIP again
+
+  ---- summary: PASS=8 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== SUMMARY  (3220s)
 ═══════════════════════════════════════════════════════════════════════════
   PASS t01
   PASS t02
@@ -501,6 +581,10 @@ done in 0.18 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0
   PASS t21
   PASS t22
   PASS t23
+  PASS t24
+  PASS t25
+  PASS t26
+  PASS t27
+  PASS t28
 
   RESULT: ALL OK
-EXIT=0

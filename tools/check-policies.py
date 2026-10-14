@@ -5,7 +5,8 @@ Usage: check-policies.py <rendered.yaml> [more.yaml ...]
 
 Checks (see AGENTS.md):
   1. every container image is a UBI image pinned by digest, and nothing uses
-     docker.io/library/postgres;
+     docker.io/library/postgres (a documented allowlist covers components that
+     have no UBI image, e.g. the metrics exporter);
   2. no operators: no CRDs and no OLM objects;
   3. the namespace is `plain-pg` (rule 4);
   4. auxiliary pod templates do not carry name/instance=postgresql, so they can
@@ -25,15 +26,20 @@ FORBIDDEN_KINDS = {
     "OperatorGroup",
     "InstallPlan",
 }
-# Workload kinds that carry a PodSpec, and where it lives.
-PODSPEC_PATHS = {
-    "Pod": ["spec"],
+# Path to the PodTemplateSpec (metadata + spec) inside each workload kind.
+POD_TEMPLATE_PATHS = {
     "StatefulSet": ["spec", "template"],
     "Deployment": ["spec", "template"],
     "DaemonSet": ["spec", "template"],
     "ReplicaSet": ["spec", "template"],
     "Job": ["spec", "template"],
     "CronJob": ["spec", "jobTemplate", "spec", "template"],
+}
+# Non-UBI images that are allowed because Red Hat does not publish one. They must
+# still be pinned by digest. Keep this list short and documented.
+NON_UBI_ALLOWED = {
+    "quay.io/prometheuscommunity/postgres-exporter":
+        "metrics exporter (components/metrics)",
 }
 
 problems = []
@@ -43,17 +49,21 @@ def fail(msg):
     problems.append(msg)
 
 
-def pod_specs(doc):
-    path = PODSPEC_PATHS.get(doc.get("kind"))
-    node = doc
+def pod_templates(doc):
+    """Yield (labels, pod_spec) for every pod template in the object."""
+    if doc.get("kind") == "Pod":
+        yield doc.get("metadata", {}).get("labels", {}), doc.get("spec", {})
+        return
+    path = POD_TEMPLATE_PATHS.get(doc.get("kind"))
     if not path:
         return
+    node = doc
     for key in path:
         if not isinstance(node, dict) or key not in node:
             return
         node = node[key]
     if isinstance(node, dict):
-        yield node
+        yield (node.get("metadata") or {}).get("labels", {}), node.get("spec") or {}
 
 
 def check_doc(doc):
@@ -71,8 +81,7 @@ def check_doc(doc):
     elif meta.get("namespace") != NAMESPACE:
         fail(f"{where}: namespace must be {NAMESPACE} (rule 4)")
 
-    for spec in pod_specs(doc):
-        labels = spec.get("metadata", {}).get("labels", {})
+    for labels, spec in pod_templates(doc):
         if kind != "StatefulSet" or name != "postgresql":
             if labels.get("app.kubernetes.io/name") == "postgresql":
                 fail(f"{where}: auxiliary pod template has name=postgresql (rule 8)")
@@ -87,7 +96,8 @@ def check_doc(doc):
             image = c.get("image", "")
             if "docker.io/library/postgres" in image:
                 fail(f"{where}: docker.io/library/postgres is forbidden (rule 3)")
-            if IMAGE_RE not in image:
+            allowed = any(image.startswith(p) for p in NON_UBI_ALLOWED)
+            if not allowed and IMAGE_RE not in image:
                 fail(f"{where}: image {image!r} is not a UBI image (rule 3)")
             if "@sha256:" not in image:
                 fail(f"{where}: image {image!r} is not pinned by digest (rule 3)")

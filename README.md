@@ -146,7 +146,7 @@ against it, uploading the transcript.
 
 ## Documentation
 
-- [docs/operations.md](docs/operations.md) — deploy, verify, connect, restart, re-seed
+- [docs/operations.md](docs/operations.md) — deploy, verify, connect, metrics, restart, re-seed
 - [docs/failover.md](docs/failover.md) — manual and automatic failover, limits
 - [docs/backups.md](docs/backups.md) — backups and restore
 - [docs/scaling.md](docs/scaling.md) — reads and the HPA

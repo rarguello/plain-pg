@@ -36,8 +36,12 @@ lint:
 	oc kustomize manifests/overlays/lab > $(RENDERED).lab.yaml
 	oc kustomize manifests/overlays/lab-manual > $(RENDERED).lab-manual.yaml
 	oc kustomize manifests/overlays/lab-autoscale > $(RENDERED).lab-autoscale.yaml
+	oc kustomize manifests/overlays/lab-metrics > $(RENDERED).lab-metrics.yaml
+	oc kustomize manifests/overlays/lab-tls > $(RENDERED).lab-tls.yaml
+	oc kustomize manifests/overlays/lab-tls-byo > $(RENDERED).lab-tls-byo.yaml
+	oc kustomize manifests/overlays/lab-external > $(RENDERED).lab-external.yaml
 	python3 tools/check-scripts.py $(RENDERED).lab.yaml $(RENDERED).lab-manual.yaml
-	python3 tools/check-policies.py $(RENDERED).lab.yaml $(RENDERED).lab-manual.yaml $(RENDERED).lab-autoscale.yaml
+	python3 tools/check-policies.py $(RENDERED).lab.yaml $(RENDERED).lab-manual.yaml $(RENDERED).lab-autoscale.yaml $(RENDERED).lab-metrics.yaml $(RENDERED).lab-tls.yaml $(RENDERED).lab-tls-byo.yaml $(RENDERED).lab-external.yaml
 
 test-quick:
 	./tests/run-all.sh quick
