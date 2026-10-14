@@ -23,7 +23,7 @@ jobs:
         run: |
           # Same recipe as MINC's own CI: ubuntu-24.04 with the distro podman.
           sudo apt-get update -qq
-          sudo apt-get install -y -qq podman
+          sudo apt-get install -y -qq podman skopeo
           podman version
           curl -sSL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable-4.19/openshift-client-linux.tar.gz \
             | sudo tar xz -C /usr/local/bin oc kubectl
