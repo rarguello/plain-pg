@@ -25,7 +25,10 @@ check "the replica rejects DDL (CREATE TABLE)" ddl_fails "$REPLICA"
 # having a shell in the container (see docs/operations.md).
 HBA="$(oc -n "$NS" exec "$PRIMARY" -- cat "$PGDATA_PATH/pg_hba.conf" 2>/dev/null)"
 hba_remote_without_trust() {
-  ! printf '%s\n' "$HBA" | grep -E '^host' | grep -vE '127\.0\.0\.1|::1' | grep -qw trust
+  # No early-exiting `grep -q` in a pipeline (see lib-test.sh): collect first.
+  local remote
+  remote="$(grep -E '^host' <<< "$HBA" | grep -vE '127\.0\.0\.1|::1' || true)"
+  ! grep -qw trust <<< "$remote"
 }
 check "pg_hba does not allow 'trust' on remote connections" hba_remote_without_trust
 
