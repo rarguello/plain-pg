@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 #
 # restore-backup.sh -- restores a dump into a NEW database (it does not touch
-# the application database) and shows the restored tables.
+# the application database) and shows the restored tables. With FORCE=1 it
+# drops and recreates the target instead, which is the disaster-recovery path
+# (the application database included).
 #
 # Usage:
 #   ./scripts/restore-backup.sh /backups/20261011-020000-appdb.dump [database]
+#   FORCE=1 ./scripts/restore-backup.sh /backups/...-appdb.dump appdb   # DR
 #
 # Variables: KEEP_JOB=1 to not delete the Job when finished.
 #
@@ -62,6 +65,8 @@ spec:
               value: postgresql-rw
             - name: PGPORT
               value: "5432"
+            - name: FORCE
+              value: "${FORCE:-0}"
           volumeMounts:
             - name: backups
               mountPath: /backups

@@ -67,9 +67,11 @@ data:
     #!/bin/bash
     # Usage: restore.sh <file.dump> [target_database]
     #
-    # Always restores into a NEW database: it does not overwrite existing
-    # databases and rejects the application database. Uses --exit-on-error: if
-    # anything fails, the created database is dropped.
+    # By default it restores into a NEW database: it does not overwrite existing
+    # databases and rejects the application database. With FORCE=1 it drops and
+    # recreates the target (including the application database), which is the
+    # disaster-recovery path. Uses --exit-on-error: if anything fails, the
+    # created database is dropped.
     set -euo pipefail
 
     DUMP="${1:?usage: restore.sh <file.dump> [database]}"
@@ -78,6 +80,7 @@ data:
     PORT="${PGPORT:-5432}"
     ADMIN_USER="${BACKUP_ADMIN_USER:-postgres}"
     APP_DB="${POSTGRESQL_DATABASE:-appdb}"
+    FORCE="${FORCE:-0}"
 
     log() { echo "[pg-restore] $*"; }
     [ -f "$DUMP" ] || { log "ERROR: $DUMP does not exist"; exit 1; }
@@ -88,8 +91,8 @@ data:
         log "ERROR: invalid database name: '$TARGET' (only [A-Za-z_][A-Za-z0-9_]*)"
         exit 1 ;;
     esac
-    if [ "$TARGET" = "$APP_DB" ]; then
-      log "ERROR: the target cannot be the application database ($APP_DB)"; exit 1
+    if [ "$TARGET" = "$APP_DB" ] && [ "$FORCE" != "1" ]; then
+      log "ERROR: the target cannot be the application database ($APP_DB) without FORCE=1"; exit 1
     fi
 
     export PGPASSWORD="${POSTGRESQL_ADMIN_PASSWORD:-}"
@@ -97,16 +100,41 @@ data:
     EXISTS="$(psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres -tAc \
               "SELECT 1 FROM pg_database WHERE datname='${TARGET}'")"
     if [ "$EXISTS" = "1" ]; then
-      log "ERROR: database ${TARGET} already exists. Choose another name (this script does not overwrite databases)."
-      exit 1
+      if [ "$FORCE" != "1" ]; then
+        log "ERROR: database ${TARGET} already exists. Choose another name (or use FORCE=1 to overwrite it)."
+        exit 1
+      fi
+      log "FORCE=1: dropping and recreating ${TARGET}"
+      psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres -v ON_ERROR_STOP=1 -c \
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+          WHERE datname='${TARGET}' AND pid <> pg_backend_pid();" >/dev/null
+      psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres -v ON_ERROR_STOP=1 \
+        -c "DROP DATABASE IF EXISTS \"${TARGET}\";"
     fi
 
     log "creating target database ${TARGET}"
-    psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres -v ON_ERROR_STOP=1 \
-      -c "CREATE DATABASE \"${TARGET}\";"
+    if [ "$FORCE" = "1" ]; then
+      # DR path: the application user must own the database, so that it can
+      # create and later read the restored objects.
+      psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres -v ON_ERROR_STOP=1 \
+        -c "CREATE DATABASE \"${TARGET}\" OWNER \"${POSTGRESQL_USER:-$ADMIN_USER}\";"
+    else
+      psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres -v ON_ERROR_STOP=1 \
+        -c "CREATE DATABASE \"${TARGET}\";"
+    fi
 
-    log "restoring ${DUMP} into ${TARGET}"
-    if ! pg_restore -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d "$TARGET" \
+    # In the DR path the restore runs as the application user (the admin only
+    # creates the database), so the objects end up owned by it.
+    RESTORE_USER="$ADMIN_USER"
+    RESTORE_PASSWORD="${POSTGRESQL_ADMIN_PASSWORD:-}"
+    if [ "$FORCE" = "1" ]; then
+      RESTORE_USER="${POSTGRESQL_USER:-$ADMIN_USER}"
+      RESTORE_PASSWORD="${POSTGRESQL_PASSWORD:-}"
+    fi
+
+    log "restoring ${DUMP} into ${TARGET} (as ${RESTORE_USER})"
+    if ! PGPASSWORD="$RESTORE_PASSWORD" \
+         pg_restore -h "$HOST" -p "$PORT" -U "$RESTORE_USER" -d "$TARGET" \
            --no-owner --no-privileges --exit-on-error "$DUMP"; then
       log "ERROR: restore failed; dropping the incomplete database ${TARGET}"
       psql -h "$HOST" -p "$PORT" -U "$ADMIN_USER" -d postgres \

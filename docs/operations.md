@@ -191,10 +191,20 @@ HPA owns `replicas` (see `scaling.md`).
   ex-primary is isolated. Finish it by hand (`oc delete pod <candidate>`) or roll
   back explicitly. See `failover.md`.
 - **The primary and replica PVCs are both lost**: the dumps on the
-  `postgresql-backups` PVC are the only copy. Rebuild the cluster, recreate the app
-  database and roles, then load a dump into it. `restore-backup.sh` only restores
-  into a *new* database on a healthy cluster; it is not a disaster-recovery
-  procedure by itself.
+  `postgresql-backups` PVC are the only copy. Rebuild and load the last dump into
+  the app database (`t30` runs exactly this):
+
+```bash
+oc -n plain-pg delete statefulset postgresql
+oc -n plain-pg delete pvc pgdata-postgresql-0 pgdata-postgresql-1
+./scripts/deploy.sh                                     # fresh, empty cluster
+FORCE=1 ./scripts/restore-backup.sh /backups/<dump> appdb
+```
+
+  `FORCE=1` drops and recreates the app database and restores as the application
+  user, so the restored objects belong to it. On a brand-new cluster, restore the
+  roles from the `-globals.sql` file as well. Everything written after the last
+  dump is lost.
 
 ## Sharp edges
 

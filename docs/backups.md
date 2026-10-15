@@ -30,6 +30,11 @@ That is how the test suite checks a backup without touching production
 (`tests/t12_backup.sh`). The `-globals.sql` file holds roles and users and is
 restored by hand (`psql -f <file>-globals.sql`).
 
+With `FORCE=1` it drops and recreates the target instead, and the objects end up
+owned by the application user. That is the disaster-recovery path: rebuild the
+cluster, then load the last dump into the app database
+(`tests/t30_dr_drill.sh`; see [operations.md](operations.md#recovery)).
+
 ## Settings
 
 | Variable | Where | Default |
@@ -47,4 +52,4 @@ No WAL archiving, so there is no point-in-time recovery ("restore to 14:32");
 that needs `archive_mode`/`archive_command` and a `restore_command`. The PVC is
 the only copy, so losing it loses the backups. Only the app database is dumped;
 add a `pg_dump` per extra database in `backup.sh`. The Job checks that the dump
-can be listed; only `restore-backup.sh` (and `t12`) prove it actually restores.
+can be listed; only `restore-backup.sh` (and `t12`/`t30`) prove it actually restores.
