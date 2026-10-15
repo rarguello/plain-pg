@@ -63,7 +63,7 @@ echo "== SUMMARY  ($((END - START))s)"
 echo "═══════════════════════════════════════════════════════════════════════════"
 for r in "${RESULT[@]}"; do printf '  %s\n' "$r"; done
 
-if printf '%s\n' "${RESULT[@]}" | grep -q '^FAIL'; then
+if grep -q '^FAIL' <<< "$(printf '%s\n' "${RESULT[@]}")"; then
   echo
   echo "  RESULT: THERE ARE FAILURES"
   exit 1

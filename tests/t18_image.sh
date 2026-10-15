@@ -26,9 +26,23 @@ check_match "the imageID resolves to the same repository" \
 # belongs in a scheduled job that opens a PR, not in the suite.
 AUTHFILE="${AUTHFILE:-$HOME/.pull-secret.json}"
 if command -v skopeo >/dev/null 2>&1 && [ -f "$AUTHFILE" ]; then
-  check "the pinned reference resolves in the registry" \
-    skopeo inspect --authfile "$AUTHFILE" \
-    "docker://registry.redhat.io/rhel10/postgresql-18@$PIN"
+  # A registry call hiccups now and then (rate limits, transient 5xx): retry,
+  # and print what the registry said if it keeps failing.
+  SK_OUT=""; sk_ok=0
+  for i in 1 2 3; do
+    SK_OUT="$(skopeo inspect --authfile "$AUTHFILE" \
+      "docker://registry.redhat.io/rhel10/postgresql-18@$PIN" 2>&1 || true)"
+    if grep -q -- "\"Digest\": \"$PIN\"" <<< "$SK_OUT"; then sk_ok=1; break; fi
+    sleep $((i * 5))
+  done
+  if [ "$sk_ok" = "1" ]; then
+    c_ok "the pinned reference resolves in the registry"
+  else
+    c_fail "the pinned reference resolves in the registry"
+    # The digest line (or the error message) plus the tail.
+    printf '%s\n' "$SK_OUT" | head -5 | sed 's/^/    /'
+    printf '%s\n' "$SK_OUT" | tail -3 | sed 's/^/    /'
+  fi
 else
   c_skip "skopeo or the authfile are not available; the pin was not resolved"
 fi

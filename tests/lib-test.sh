@@ -41,11 +41,13 @@ check_ne() {
 }
 check_match() {
   local d="$1" re="$2" s="$3"
-  if printf '%s' "$s" | grep -Eq "$re"; then c_ok "$d"; else c_fail "$d (does not match /$re/: '$s')"; fi
+  # A here-string, not a pipe: with `pipefail`, `grep -q` exiting early would
+  # make the writer die of SIGPIPE and the pipeline report failure.
+  if grep -Eq "$re" <<< "$s"; then c_ok "$d"; else c_fail "$d (does not match /$re/: '$s')"; fi
 }
 check_contains() {
   local d="$1" needle="$2" hay="$3"
-  if printf '%s' "$hay" | grep -qF -- "$needle"; then c_ok "$d"; else c_fail "$d (does not contain '$needle')"; fi
+  if grep -qF -- "$needle" <<< "$hay"; then c_ok "$d"; else c_fail "$d (does not contain '$needle')"; fi
 }
 
 wait_for() {
