@@ -148,13 +148,19 @@ data:
     }
 
     cm_set_primary() {   # $1 = pod, $2 = resourceVersion (optional, for optimistic concurrency)
+      # The guard is set with the new role: a candidate that restarts before the
+      # old primary is fenced must not promote yet (see the entrypoint).
       if [ -n "${2:-}" ]; then
         jsonpatch "/api/v1/namespaces/$NS/configmaps/postgresql-role" \
-          "{\"metadata\":{\"resourceVersion\":\"$2\"},\"data\":{\"PRIMARY_POD\":\"$1\"}}"
+          "{\"metadata\":{\"resourceVersion\":\"$2\"},\"data\":{\"PRIMARY_POD\":\"$1\",\"FAILOVER_GUARD\":\"$1\"}}"
       else
         jsonpatch "/api/v1/namespaces/$NS/configmaps/postgresql-role" \
-          "{\"data\":{\"PRIMARY_POD\":\"$1\"}}"
+          "{\"data\":{\"PRIMARY_POD\":\"$1\",\"FAILOVER_GUARD\":\"$1\"}}"
       fi
+    }
+    clear_guard() {
+      jsonpatch "/api/v1/namespaces/$NS/configmaps/postgresql-role" \
+        '{"data":{"FAILOVER_GUARD":""}}' || true
     }
 
     # Repoints both Services and tries both (it does not abort on the first failure).
@@ -171,6 +177,7 @@ data:
     # it ended up that way. If it cannot, it declares it inconsistent.
     restore_state() {   # $1 = primary, $2 = replica
       cm_set_primary "$1" || true
+      clear_guard
       point_services "$1" "$2" || true
       local cm rw ro
       cm="$(json_field "$(cm_get 2>/dev/null)" PRIMARY_POD)"
@@ -312,6 +319,7 @@ data:
       fi
       # 4) Promote the candidate.
       log "promoting $candidate (recreating the pod)"
+      clear_guard   # the old primary is fenced: the candidate may promote now
       delete_pod "$candidate" || log "WARNING: could not delete $candidate (continuing)"
 
       # 5) Confirm. If it does not promote, it is NOT reverted: the ex-primary

@@ -159,8 +159,48 @@ data:
       return 1
     }
 
+    # Waits until the pod we are about to copy from is actually the primary. A
+    # restarted ex-primary (now a replica) must not wipe its own, still
+    # authoritative PGDATA and copy from a standby that is not promoted yet.
+    wait_for_primary_promoted() {
+      local tries=0 max="${WAIT_PRIMARY_RETRIES:-120}" state
+      while [ "$tries" -lt "$max" ]; do
+        state="$(PGPASSWORD="${POSTGRESQL_PASSWORD:-}" \
+                 psql -h "$PRIMARY_HOST" -p "$PGPORT" \
+                      -U "${POSTGRESQL_USER:-app}" -d "${POSTGRESQL_DATABASE:-appdb}" \
+                      -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null || true)"
+        if [ "$state" = "f" ]; then
+          log "primary $PRIMARY_HOST is promoted"
+          return 0
+        fi
+        tries=$((tries + 1))
+        log "waiting for $PRIMARY_HOST to be promoted ($tries/$max)"
+        sleep 5
+      done
+      log "ERROR: $PRIMARY_HOST did not become primary after $((max * 5))s"
+      return 1
+    }
+
+    # A failover sets FAILOVER_GUARD to the candidate's name until the old primary
+    # is confirmed fenced, and clears it afterwards. A pod that would start as
+    # primary waits for it, so a pod that restarts inside that window cannot
+    # create a second primary.
+    wait_for_failover_guard() {
+      local guard_file="/etc/plain-pg/role/FAILOVER_GUARD"
+      local guard t=0 max="${WAIT_GUARD_SECONDS:-300}"
+      while [ "$t" -lt "$max" ]; do
+        guard="$(tr -d '[:space:]' < "$guard_file" 2>/dev/null || true)"
+        [ -z "$guard" ] && return 0
+        log "failover in progress (FAILOVER_GUARD=$guard); not promoting yet"
+        sleep 5; t=$((t + 5))
+      done
+      log "WARNING: FAILOVER_GUARD was still set after ${max}s; promoting anyway"
+      return 0
+    }
+
     seed_from_primary() {
       wait_for_primary
+      wait_for_primary_promoted
       wipe_pgdata
       log "pg_basebackup from $PRIMARY_HOST"
       PGPASSWORD="${POSTGRESQL_MASTER_PASSWORD:-}" pg_basebackup \
@@ -222,6 +262,7 @@ data:
     start_as_primary() {
       ensure_monitor_role
       if is_standby_dir; then
+        wait_for_failover_guard
         log "there was standby data -> promoting (standby.signal is removed)"
         rm -f "$PGDATA/standby.signal"
       fi

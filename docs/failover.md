@@ -13,14 +13,17 @@ Promoting a replica means changing that value and recreating pods.
 The script, in order:
 
 1. Disables automatic failover for the duration of the operation.
-2. Sets `PRIMARY_POD=<candidate>` (with `resourceVersion` control) and repoints
-   `-rw` → candidate, `-ro` → ex-primary.
+2. Sets `PRIMARY_POD=<candidate>` and `FAILOVER_GUARD=<candidate>` (with
+   `resourceVersion` control) and repoints `-rw` → candidate, `-ro` → ex-primary.
+   The guard makes a pod that would start as primary wait, so a spontaneous
+   restart inside the window below cannot promote early.
 3. **Fences the ex-primary**: deletes it and waits to confirm that the pod
    disappeared or changed UID. If the delete is rejected and the pod is still
    intact, it reverts the ConfigMap and the Services and does not promote. If it
    cannot be sure nothing changed (the pod is no longer intact, or its termination
    cannot be confirmed), it does **not** revert: it fails hard for intervention.
-4. Recreates the candidate, which sees the new role and promotes itself.
+4. Clears `FAILOVER_GUARD` and recreates the candidate, which sees the new role
+   and promotes itself.
 5. Waits to confirm. If the candidate does not promote, it is **not** reverted
    (the ex-primary is already isolated): the declared state stays on the candidate
    and the script fails hard so a person intervenes.
@@ -39,11 +42,11 @@ HPA removes the highest ordinals on scale-down.
 3. Picks a healthy replica among ordinals 0 and 1.
 4. Re-reads the ConfigMap and aborts if the role changed or auto-failover was
    disabled during the grace period, then declares the candidate primary (with
-   `resourceVersion` control) and repoints the Services.
+   `resourceVersion` control, setting `FAILOVER_GUARD`) and repoints the Services.
 5. Fences the ex-primary: it reverts and does not promote only when it is certain
    nothing changed; otherwise it leaves the new role and fails hard.
-6. Recreates the candidate to promote it and confirms. If it does not promote, it
-   does not revert: it fails hard.
+6. Clears `FAILOVER_GUARD`, recreates the candidate to promote it and confirms. If
+   it does not promote, it does not revert: it fails hard.
 
 Enabled in the `postgresql-role` ConfigMap:
 
@@ -64,7 +67,7 @@ Read these before relying on automatic failover.
 | The **node** of the primary is partitioned from the API server | pod-level fencing can declare a primary dead whose process is still running; two primaries may remain (split-brain) | enable node-level isolation (for example `MachineHealthCheck` + a fence agent) before trusting automatic failover, or keep it disabled |
 | Replication is asynchronous | a failover can lose the last unreplicated transactions; the loss is not bounded by the design | accept it, or enable synchronous replication (out of scope here) |
 | Detection is by timeout, not consensus | a slow primary can be declared down too early | keep `FAILOVER_GRACE_SECONDS` conservative (120–300 s) |
-| A pod restarts between declaring the new role and finishing fencing | the candidate can promote, or the ex-primary can wipe and re-seed its PGDATA, before isolation is confirmed | not guarded: a spontaneous restart can hit this window, so verify a single primary after any failover |
+| A pod restarts between declaring the new role and finishing fencing | without a guard, the candidate could promote or the ex-primary could wipe and re-seed its PGDATA before isolation is confirmed | guarded: `FAILOVER_GUARD` makes the candidate wait, and a re-seeding pod waits until the target answers as a primary before it wipes anything; still verify a single primary after any failover |
 | Promotion does not check the replay position | a reachable but stale standby can be promoted | check the standby's replay position by hand before promoting if the loss must be bounded |
 | Manual, automatic and `oc apply -k` are not mutually exclusive | interleaved writes to the role and the Services can clobber each other (only the ConfigMap patch uses `resourceVersion`) | run one operator at a time: no manual failover during a deploy or while the CronJob is acting |
 | The promotion fails | the declared state stays on the candidate; the ex-primary is isolated | finish it (`oc -n plain-pg delete pod <candidate>`) or roll back explicitly |

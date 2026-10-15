@@ -68,12 +68,18 @@ fi
 # --- helpers ---------------------------------------------------------------
 set_cm_primary() {   # $1 = pod, $2 = resourceVersion (optional)
   local body
+  # The guard is set together with the new role: a candidate that restarts before
+  # the old primary is fenced must not promote yet (see the entrypoint).
   if [ -n "${2:-}" ]; then
-    body="{\"metadata\":{\"resourceVersion\":\"$2\"},\"data\":{\"PRIMARY_POD\":\"$1\"}}"
+    body="{\"metadata\":{\"resourceVersion\":\"$2\"},\"data\":{\"PRIMARY_POD\":\"$1\",\"FAILOVER_GUARD\":\"$1\"}}"
   else
-    body="{\"data\":{\"PRIMARY_POD\":\"$1\"}}"
+    body="{\"data\":{\"PRIMARY_POD\":\"$1\",\"FAILOVER_GUARD\":\"$1\"}}"
   fi
   oc -n "$NS" patch configmap postgresql-role --type merge -p "$body" >/dev/null
+}
+clear_guard() {
+  oc -n "$NS" patch configmap postgresql-role --type merge \
+    -p '{"data":{"FAILOVER_GUARD":""}}' >/dev/null 2>&1 || true
 }
 set_services() {   # $1 = primary, $2 = replica; tries both
   local ok=0
@@ -86,6 +92,7 @@ set_services() {   # $1 = primary, $2 = replica; tries both
 svc_pod() { oc -n "$NS" get svc "$1" -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null || true; }
 restore_state() {   # $1 = primary, $2 = replica
   set_cm_primary "$1" || true
+  clear_guard
   set_services "$1" "$2" || true
   local cm rw ro
   cm="$(cm_value PRIMARY_POD || true)"
@@ -186,6 +193,7 @@ elif [ "$FRC" -eq 2 ]; then
 fi
 
 echo "[4/5] Recreating pod $CANDIDATE so that it promotes"
+clear_guard   # the old primary is fenced: the candidate may promote now
 oc -n "$NS" delete pod "$CANDIDATE" >/dev/null
 
 echo "[5/5] Waiting for $CANDIDATE to become primary..."

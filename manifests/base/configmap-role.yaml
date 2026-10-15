@@ -10,6 +10,11 @@
 #                 (read by the CronJob of the automatic-failover component).
 #   FAILOVER_GRACE_SECONDS  how long to wait for the primary to come back
 #                 before declaring it down (read by the CronJob).
+#   FAILOVER_GUARD  set by the failover scripts to the candidate's name while the
+#                 old primary is being fenced, and cleared once it is confirmed
+#                 gone. A pod that would start as primary waits until it is clear,
+#                 so a pod that restarts inside that window cannot create a second
+#                 primary.
 #
 # Pods read PRIMARY_POD ONLY at startup. After changing this ConfigMap the
 # affected pods must be restarted (the failover scripts do it).
@@ -28,3 +33,4 @@ data:
   PRIMARY_POD: "postgresql-0"
   AUTO_FAILOVER: "false"
   FAILOVER_GRACE_SECONDS: "120"
+  FAILOVER_GUARD: ""
