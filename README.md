@@ -109,18 +109,24 @@ instead.
 
 `oc apply -k` is for a fresh install. Re-applying it after a failover or an HPA
 scale resets `PRIMARY_POD`, the `-rw`/`-ro` selectors and `spec.replicas`; on a
-live cluster use `scripts/deploy.sh`, which skips those fields, or patch the
+live cluster use `scripts/deploy.sh`, which preserves the live role, the Service
+selectors and the replica count while applying everything else, or patch the
 object directly.
 
 `plain-pg` is only the example namespace: change `metadata.name` in
 `manifests/base/namespace.yaml`, the `namespace:` field in each overlay, and `NS`
 in the scripts to deploy elsewhere.
 
+Optional add-ons (each an overlay): **metrics** for Prometheus (`lab-metrics`),
+**TLS** with a service-ca certificate (`lab-tls`) or your own (`lab-tls-byo`), and
+**external access** through a NodePort (`lab-external`). `lab-autoscale` adds the
+read HPA. See [operations.md](docs/operations.md).
+
 The `scripts/` are for the test suite and day-2 operations, not the install:
 `deploy.sh` re-applies the overlay without reverting a failover;
 `verify-replication.sh`, `failover-manual.sh`, `backup-now.sh` and
 `reseed-replica.sh` are the day-2 helpers. Tear down with `./scripts/teardown.sh`
-(keeps the namespace) or `--all`. `make deploy|verify|lint|test-quick|test`.
+(keeps the namespace) or `--all`. `make deploy|verify|lint|ci|test-quick|test`.
 
 ## Limits
 
@@ -135,9 +141,10 @@ Known limitations:
 
 ## Tests
 
-The suite runs against a real cluster, no mocks: **23 tests, 233 checks, 0
+The suite runs against a real cluster, no mocks: **28 tests, 269 checks, 0
 failures** covering deploy, replication, manual and automatic failover,
-persistence, backups, scaling and the HPA. See [docs/tests.md](docs/tests.md).
+persistence, backups, scaling, the HPA, metrics, TLS and external access. See
+[docs/tests.md](docs/tests.md).
 
 CI runs it too: on every push it lints, validates the manifests (Kubernetes
 schema + the AGENTS.md rules) and scans for secrets; **every night it creates a
@@ -157,7 +164,7 @@ against it, uploading the transcript.
 
 ```
 manifests/  base + components + overlays      scripts/  deploy, failover, backup, restore, ...
-tests/      suite t01..t23 + runner           tools/    static validation of embedded scripts
+tests/      suite t01..t28 + runner           tools/    static validation of embedded scripts
 ```
 
 MIT. See [LICENSE](LICENSE).

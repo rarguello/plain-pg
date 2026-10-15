@@ -33,7 +33,7 @@ check "a second deploy keeps 2 replicas" bash -c \
    [ \"\$(oc -n '$NS' get sts postgresql -o jsonpath='{.spec.replicas}')\" = '2' ]"
 check_eq "the declared primary is unchanged" "$PRIMARY_BEFORE" "$(primary_pod)"
 wait_for 300 "the two pods are Ready again" wait_db_ready 2
-check_eq "postgresql-0 is primary again" "f" "$(pod_in_recovery postgresql-0)"
-check_eq "postgresql-1 is standby again" "t" "$(pod_in_recovery postgresql-1)"
+check_eq "the declared primary is primary again" "f" "$(pod_in_recovery "$PRIMARY_BEFORE")"
+check_eq "the other pod is a standby again" "t" "$(pod_in_recovery "$(replica_pods | head -1)")"
 
 t_summary

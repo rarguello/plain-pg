@@ -11,7 +11,7 @@ The suite runs against a real cluster; there are no mocks. Each test prints
 
 ## Coverage
 
-Coverage. Last full run against a real cluster: **28/28 tests · 267 checks · 0
+Coverage. Last full run against a real cluster: **28/28 tests · 269 checks · 0
 failures** (transcript in [Evidence](#evidence)).
 
 | Test | What it proves | Checks | Result |
@@ -41,8 +41,8 @@ failures** (transcript in [Evidence](#evidence)).
 | `t23_hpa` | Under load the HPA grows the fleet and the new replica serves reads | 11 | PASS |
 | `t24_deploy_recreate` | `deploy.sh` recreates a deleted StatefulSet with the right replica count | 10 | PASS |
 | `t25_metrics` | The `postgres_exporter` reaches the database and serves metrics | 5 | PASS |
-| `t26_tls` | The service-ca certificate makes PostgreSQL serve TLS and replication uses it | 6 | PASS |
-| `t27_tls_byo` | A bring-your-own certificate (a tiny openssl PKI) serves TLS with `verify-full` | 5 | PASS |
+| `t26_tls` | The service-ca certificate makes PostgreSQL require TLS and replication uses it | 7 | PASS |
+| `t27_tls_byo` | A bring-your-own certificate (a tiny openssl PKI) serves TLS with `verify-full` | 6 | PASS |
 | `t28_external` | A NodePort on `-rw` reaches the primary, and the policy still blocks outsiders | 8 | PASS |
 
 Destructive tests (`t07`, `t08`, `t11`, `t13`, `t15`, `t16`, `t17`, `t23`, `t24`,

@@ -1,0 +1,25 @@
+name: release
+
+# On a tag, publish a release with the last full-suite transcript attached, so
+# the evidence travels with the version.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EVIDENCE="$(find docs/evidence -name '*-full-suite.txt' | sort | tail -1)"
+          gh release create "$GITHUB_REF_NAME" "$EVIDENCE" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Full-suite evidence: \`$(basename "$EVIDENCE")\` (see docs/evidence/README.md)."

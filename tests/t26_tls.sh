@@ -4,6 +4,7 @@
 #        (OpenShift/MicroShift); skips on a cluster without it.
 source "$(dirname "${BASH_SOURCE[0]}")/lib-test.sh"
 load_credentials
+PRIMARY="$(primary_pod)"
 
 echo "### t26 TLS (service-ca)"
 
@@ -39,12 +40,12 @@ echo "  (recreating the pods to mount the certificate)"
 oc -n "$NS" delete pod postgresql-1 postgresql-0 --ignore-not-found >/dev/null 2>&1
 wait_for 300 "the two pods are Ready again" wait_db_ready 2
 
-ssl_on() { [ "$(pod_psql_admin postgresql-0 -tAc 'SHOW ssl' 2>/dev/null)" = "on" ]; }
+ssl_on() { [ "$(pod_psql_admin "$PRIMARY" -tAc 'SHOW ssl' 2>/dev/null)" = "on" ]; }
 wait_for 60 "PostgreSQL reports ssl=on" ssl_on
 
 # The replica's WAL connection must be encrypted.
 repl_tls() {
-  [ "$(pod_psql_admin postgresql-0 -tAc \
+  [ "$(pod_psql_admin "$PRIMARY" -tAc \
        "SELECT count(*) FROM pg_stat_ssl s JOIN pg_stat_replication r ON r.pid = s.pid WHERE s.ssl" \
        2>/dev/null)" -ge 1 ]
 }
@@ -52,10 +53,17 @@ wait_for 120 "the replication connection uses TLS" repl_tls
 
 # A client that verifies the CA connects through -rw.
 verify_ca() {
-  oc -n "$NS" exec postgresql-0 -- env PGSSLMODE=verify-ca \
+  oc -n "$NS" exec "$PRIMARY" -- env PGSSLMODE=verify-ca \
     PGSSLROOTCERT=/var/lib/pgsql/data/userdata/tls/ca.crt PGPASSWORD="$ADMIN_PASSWORD" \
     psql -h postgresql-rw -U postgres -d postgres -tAc 'SELECT 1' 2>/dev/null | grep -qx 1
 }
 check "a client that verifies the CA connects through -rw" verify_ca
+
+# TLS is required: a plaintext-only client must be refused.
+plaintext_refused() {
+  ! oc -n "$NS" exec "$PRIMARY" -- env PGSSLMODE=disable PGPASSWORD="$ADMIN_PASSWORD" \
+    psql -h postgresql-rw -U postgres -d postgres -tAc 'SELECT 1' 2>/dev/null | grep -qx 1
+}
+check "a plaintext-only client is refused" plaintext_refused
 
 t_summary

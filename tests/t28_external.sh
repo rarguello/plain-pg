@@ -18,7 +18,7 @@ check_eq "postgresql-rw is a NodePort" "NodePort" \
   "$(oc -n "$NS" get svc postgresql-rw -o jsonpath='{.spec.type}' 2>/dev/null)"
 check_eq "it uses nodePort $NODE_PORT" "$NODE_PORT" \
   "$(oc -n "$NS" get svc postgresql-rw -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null)"
-check_eq "it keeps selecting the primary" "postgresql-0" \
+check_eq "it keeps selecting the primary" "$(primary_pod)" \
   "$(oc -n "$NS" get svc postgresql-rw -o jsonpath='{.spec.selector.statefulset\.kubernetes\.io/pod-name}' 2>/dev/null)"
 check_eq "externalTrafficPolicy is Local" "Local" \
   "$(oc -n "$NS" get svc postgresql-rw -o jsonpath='{.spec.externalTrafficPolicy}' 2>/dev/null)"

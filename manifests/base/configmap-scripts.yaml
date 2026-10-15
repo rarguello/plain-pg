@@ -95,6 +95,7 @@ data:
     ensure_tls_config() {
       local tlsconf="$PGDATA/tls.conf"
       local src="/etc/plain-pg/tls" cadir="/etc/plain-pg/tls-ca"
+      local hba="$PGDATA/pg_hba.conf"
       if [ -f "$src/tls.crt" ] && [ -f "$src/tls.key" ]; then
         mkdir -p "$PGDATA/tls"
         cp -f "$src/tls.crt" "$PGDATA/tls/tls.crt"; chmod 0644 "$PGDATA/tls/tls.crt"
@@ -115,8 +116,21 @@ data:
           fi
         } > "$tlsconf"
         log "TLS enabled (certificate mounted)"
+        # Require TLS for TCP when the component asks for it: turn the image's
+        # plaintext `host` rules into `hostssl`. Idempotent (hostssl does not
+        # match the pattern again).
+        if [ "${PG_REQUIRE_TLS:-false}" = "true" ] && [ -f "$hba" ]; then
+          sed -i -E 's/^([[:space:]]*)host([[:space:]]+all[[:space:]]+all[[:space:]]+all[[:space:]]+md5)/\1hostssl\2/' "$hba"
+          sed -i -E 's/^([[:space:]]*)host([[:space:]]+replication[[:space:]]+all[[:space:]]+all[[:space:]]+md5)/\1hostssl\2/' "$hba"
+          log "TLS required for TCP connections (pg_hba.conf)"
+        fi
       else
         rm -f "$tlsconf"
+        # If TLS was required before, allow plaintext again.
+        if [ -f "$hba" ]; then
+          sed -i -E 's/^([[:space:]]*)hostssl([[:space:]]+all[[:space:]]+all[[:space:]]+all[[:space:]]+md5)/\1host\2/' "$hba"
+          sed -i -E 's/^([[:space:]]*)hostssl([[:space:]]+replication[[:space:]]+all[[:space:]]+all[[:space:]]+md5)/\1host\2/' "$hba"
+        fi
       fi
       local marker="# plain-pg: tls include"
       if ! grep -qF "$marker" "$PGDATA/postgresql.auto.conf" 2>/dev/null; then
@@ -156,6 +170,24 @@ data:
       log "replica seeded from $PRIMARY_HOST"
     }
 
+    # The metrics exporter connects as the application user, which needs
+    # pg_monitor to read pg_stat_*. SQL cannot run here (the server is not up
+    # yet) and the image's hook directory is root-owned, so a small background
+    # task waits for the server and runs the (idempotent) grant.
+    ensure_monitor_role() {
+      local user="${POSTGRESQL_USER:-app}"
+      (
+        for _ in $(seq 1 120); do
+          if psql -U postgres -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
+            psql -U postgres -d postgres -c "GRANT pg_monitor TO \"$user\"" >/dev/null 2>&1 || true
+            break
+          fi
+          sleep 2
+        done
+      ) &
+      log "pg_monitor will be granted to $user once the server is up"
+    }
+
     # ----------------------------------------------------------------------
     # REPLICA path: replicates the end of run-postgresql-slave.
     # ----------------------------------------------------------------------
@@ -188,6 +220,7 @@ data:
     # PRIMARY path: uses run-postgresql (initdb + image hooks).
     # ----------------------------------------------------------------------
     start_as_primary() {
+      ensure_monitor_role
       if is_standby_dir; then
         log "there was standby data -> promoting (standby.signal is removed)"
         rm -f "$PGDATA/standby.signal"

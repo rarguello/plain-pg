@@ -44,10 +44,14 @@ patches:
         value: {name: tls-ca, mountPath: /etc/plain-pg/tls-ca, readOnly: true}
       # libpq (the WAL receiver, psql, pg_dump...) uses TLS when the server
       # offers it, and the entrypoint copies the CA to this path for clients
-      # that verify.
+      # that verify. PG_REQUIRE_TLS makes the entrypoint turn the plaintext
+      # `host` rules in pg_hba.conf into `hostssl`.
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value: {name: PGSSLMODE, value: prefer}
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value: {name: PGSSLROOTCERT, value: /var/lib/pgsql/data/userdata/tls/ca.crt}
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: PG_REQUIRE_TLS, value: "true"}

@@ -1,0 +1,51 @@
+name: digest drift
+
+# Weekly: compare the pinned postgresql-18 digest with what the registry serves
+# for :latest, and open an issue when they differ. Updating the pin is a human
+# decision (it means a new build of the image), so this only reports.
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install skopeo
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq skopeo
+
+      - name: Compare the pin with the registry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTHFILE: ${{ runner.temp }}/pull-secret.json
+        run: |
+          printf '%s' '${{ secrets.RH_PULL_SECRET }}' > "$AUTHFILE"
+          CURRENT="$(./scripts/update-digest.sh | awk '/^Digest:/{print $2}')"
+          PINNED="$(grep -oE 'sha256:[0-9a-f]{64}' manifests/overlays/lab/kustomization.yaml | head -1)"
+          echo "pinned=$PINNED registry=$CURRENT"
+          if [ -z "$CURRENT" ] || [ "$CURRENT" = "$PINNED" ]; then
+            echo "The pin is up to date."
+            exit 0
+          fi
+          TITLE="digest drift: the pinned postgresql-18 image is outdated"
+          if gh issue list --state open --search "$TITLE" --json title --jq '.[].title' | grep -qF "$TITLE"; then
+            echo "An issue is already open."
+            exit 0
+          fi
+          BODY="The registry now serves \`$CURRENT\` for \`registry.redhat.io/rhel10/postgresql-18:latest\`, but the repo pins \`$PINNED\`.
+
+          Update it with:
+
+              ./scripts/update-digest.sh --apply
+
+          Then recreate the pods (updateStrategy is OnDelete) and run the suite."
+          gh issue create --title "$TITLE" --body "$BODY"

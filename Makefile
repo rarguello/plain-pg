@@ -4,7 +4,7 @@ NS       ?= plain-pg
 OVERLAY  ?= manifests/overlays/lab
 RENDERED := /tmp/plain-pg-rendered
 
-.PHONY: help deploy teardown verify failover backup lint test test-quick
+.PHONY: help deploy teardown verify failover backup lint ci test test-quick
 
 help:
 	@echo "make deploy       deploys $(OVERLAY) in $(NS)"
@@ -13,6 +13,7 @@ help:
 	@echo "make failover     promotes a replica"
 	@echo "make backup       manual backup"
 	@echo "make lint         shellcheck + kustomize + embedded scripts + policies"
+	@echo "make ci           make lint plus the other checks CI runs (best effort)"
 	@echo "make test-quick   non-destructive tests"
 	@echo "make test         all tests (includes destructive)"
 
@@ -42,6 +43,14 @@ lint:
 	oc kustomize manifests/overlays/lab-external > $(RENDERED).lab-external.yaml
 	python3 tools/check-scripts.py $(RENDERED).lab.yaml $(RENDERED).lab-manual.yaml
 	python3 tools/check-policies.py $(RENDERED).lab.yaml $(RENDERED).lab-manual.yaml $(RENDERED).lab-autoscale.yaml $(RENDERED).lab-metrics.yaml $(RENDERED).lab-tls.yaml $(RENDERED).lab-tls-byo.yaml $(RENDERED).lab-external.yaml
+
+# The same checks CI runs, for the tools that are installed locally.
+ci: lint
+	@command -v kubeconform >/dev/null 2>&1 && kubeconform -summary -ignore-missing-schemas $(RENDERED).*.yaml || echo "kubeconform not installed; skipped"
+	@command -v yamllint >/dev/null 2>&1 && yamllint -f parsable manifests .github || echo "yamllint not installed; skipped"
+	@command -v actionlint >/dev/null 2>&1 && actionlint || echo "actionlint not installed; skipped"
+	@command -v codespell >/dev/null 2>&1 && codespell || echo "codespell not installed; skipped"
+	@command -v npx >/dev/null 2>&1 && npx --yes markdownlint-cli2 || echo "npx not installed; markdownlint skipped"
 
 test-quick:
 	./tests/run-all.sh quick

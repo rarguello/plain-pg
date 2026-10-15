@@ -45,15 +45,24 @@ spec:
         - name: postgres-exporter
           image: quay.io/prometheuscommunity/postgres-exporter@sha256:38606faa38c54787525fb0ff2fd6b41b4cfb75d455c1df294927c5f611699b17
           env:
+            # The Go driver supports disable/require/verify-ca/verify-full, not
+            # libpq's "prefer". This is the no-TLS default; with the tls
+            # component, patch it to sslmode=require (see docs/operations.md).
             - name: DATA_SOURCE_URI
               value: postgresql-rw:5432/postgres?sslmode=disable
+            # The application user: the entrypoint grants it pg_monitor (see the
+            # start hook in the base ConfigMap), so the exporter reads pg_stat_*
+            # without the superuser.
             - name: DATA_SOURCE_USER
-              value: postgres
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-credentials
+                  key: POSTGRESQL_USER
             - name: DATA_SOURCE_PASS
               valueFrom:
                 secretKeyRef:
                   name: postgresql-credentials
-                  key: POSTGRESQL_ADMIN_PASSWORD
+                  key: POSTGRESQL_PASSWORD
           ports:
             - name: metrics
               containerPort: 9187

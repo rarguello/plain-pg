@@ -23,8 +23,9 @@ For manual failover only (no failover CronJob), apply
 
 `plain-pg` is only the example namespace. To deploy elsewhere, change
 `metadata.name` in `manifests/base/namespace.yaml`, the `namespace:` field in each
-overlay (`lab`, `lab-manual`, `lab-autoscale`), and `NS` in `scripts/lib.sh`; the
-commands in this document then need the same namespace.
+overlay (`lab`, `lab-manual`, `lab-autoscale`, `lab-metrics`, `lab-tls`,
+`lab-tls-byo`, `lab-external`), and `NS` in `scripts/lib.sh`; the commands in this
+document then need the same namespace.
 
 ## Credentials
 
@@ -51,14 +52,17 @@ prefer not to create the Secret by hand:
 
 ## Scripts (test tooling)
 
-`scripts/deploy.sh`, used by the test suite, is a wrapper that re-applies the
-overlay while preserving a failover: it skips the `postgresql-role` ConfigMap and
-the `-rw`/`-ro` Services, applies the StatefulSet server-side without
-`spec.replicas`, generates a throwaway Secret in gitignored `secrets/`, and waits
-for the pods. It needs Python with PyYAML when it reapplies over an existing
-deployment. The other scripts (`verify-replication.sh`, `failover-manual.sh`,
-`backup-now.sh`, `restore-backup.sh`, `reseed-replica.sh`, `read-load.sh`) are the
-day-2 helpers; see `tests.md`.
+`scripts/deploy.sh`, used by the test suite, re-applies the overlay while
+preserving a live failover: it leaves the `postgresql-role` ConfigMap alone, and
+applies the StatefulSet and the `-rw`/`-ro` Services with **merge patches** that
+omit the operational fields (`spec.replicas` and `spec.selector`). So the role, the
+routing and a replica count owned by the HPA survive, while everything else (for
+example the Service `type` of `lab-external`) still applies. It generates a
+throwaway Secret in gitignored `secrets/` and waits for the pods. It needs Python
+with PyYAML when it reapplies over an existing deployment. The other scripts
+(`verify-replication.sh`, `failover-manual.sh`, `backup-now.sh`,
+`restore-backup.sh`, `reseed-replica.sh`, `read-load.sh`) are the day-2 helpers;
+see `tests.md`.
 
 ## Metrics
 
@@ -72,9 +76,17 @@ oc apply -k manifests/overlays/lab-metrics
 It needs the `monitoring.coreos.com` CRDs (the monitoring stack; MicroShift does
 not ship them, and the component labels the namespace
 `openshift.io/cluster-monitoring=true`). The exporter connects through
-`postgresql-rw`, so it follows a failover, as the superuser because the default
-queries read `pg_stat_*`; for production create a role with `pg_monitor` and
-point `DATA_SOURCE_USER` at it.
+`postgresql-rw`, so it follows a failover, as the **application user**: the
+entrypoint grants that user `pg_monitor` (a background task in the base
+ConfigMap), so the exporter reads `pg_stat_*` without the superuser.
+
+Its DSN uses `sslmode=disable` (the Go driver has no `prefer`). If you also use
+`lab-tls`, patch it to `sslmode=require` (or `verify-ca` with the CA mounted):
+
+```bash
+oc -n plain-pg patch deploy postgresql-metrics --type merge -p \
+  '{"spec":{"template":{"spec":{"containers":[{"name":"postgres-exporter","env":[{"name":"DATA_SOURCE_URI","value":"postgresql-rw:5432/postgres?sslmode=require"}]}]}}}}'
+```
 
 ## TLS
 
@@ -99,8 +111,12 @@ The certificate must be valid for the names clients use (the headless per-pod
 DNS and the `-rw`/`-ro` Services). Clients verify with `sslmode=verify-ca`, or
 `verify-full` with your own SANs, and `sslrootcert` pointing at the CA. The WAL
 receiver, `psql` and `pg_dump` use TLS when the server offers it
-(`PGSSLMODE=prefer`). TLS is offered, not required; to require it, add a
-`hostssl` line to `pg_hba.conf` and drop the plaintext `host` lines. On a fresh
+(`PGSSLMODE=prefer`).
+
+**TLS is required** for TCP connections: the component sets `PG_REQUIRE_TLS=true`
+and the entrypoint turns the image's plaintext `host` rules in `pg_hba.conf` into
+`hostssl`, so a client that does not use TLS is refused. Remove that env var (or
+the component) to go back to offering TLS instead of requiring it. On a fresh
 install the first `initdb` does not pick TLS up: restart the pods once.
 
 ## External access (NodePort)
@@ -188,6 +204,7 @@ HPA owns `replicas` (see `scaling.md`).
   password is needed. Remote connections require the password.
 - `oc apply` prints `configured` for the StatefulSet on every run even when
   nothing changed (the `volumeClaimTemplates` status); check real idempotency with
-  the `resourceVersion`, not with that word.
+  `metadata.generation` (or the `resourceVersion` for objects without it), not
+  with that word.
 - `oc rollout status` does not work with `updateStrategy: OnDelete`; watch the
   pods instead.
