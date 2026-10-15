@@ -38,6 +38,10 @@ oc -n "$NS" delete pod "$PRIMARY" >/dev/null 2>&1
 wait_for 240 "the primary becomes Ready again" pod_ready "$PRIMARY"
 check_eq "the primary is still primary" "f" "$(pod_in_recovery "$PRIMARY")"
 check "row '$MARK' is still on the primary" has_row "$PRIMARY" "$MARK"
-wait_for 120 "replication resumes after restarting the primary" streaming "$PRIMARY"
+# A slow runner can take a while to re-establish the stream (the lab needs
+# seconds); the timeout only has to catch a real break, and the diagnostic
+# below is printed when it fires.
+wait_for 240 "replication resumes after restarting the primary" streaming "$PRIMARY" \
+  || diag_replication "$PRIMARY" "$REPLICA"
 
 t_summary

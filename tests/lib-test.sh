@@ -63,6 +63,23 @@ pod_ready() {   # pod_ready <pod>
   [ "$(oc -n "$NS" get pod "$1" -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null)" = "true" ]
 }
 
+# Prints the replication state and recent logs, to diagnose a failed wait.
+diag_replication() {   # diag_replication <primary> [replica]
+  local primary="$1" replica="${2:-}"
+  echo "  ---- diagnostic: pg_stat_replication on $primary"
+  pod_psql_admin "$primary" -c \
+    "SELECT application_name, state, sync_state, sent_lsn, replay_lsn FROM pg_stat_replication" \
+    2>&1 | sed 's/^/    /'
+  if [ -n "$replica" ]; then
+    echo "  ---- diagnostic: pg_stat_wal_receiver on $replica"
+    pod_psql_admin "$replica" -c \
+      "SELECT status, latest_end_lsn, last_msg_receipt_time FROM pg_stat_wal_receiver" \
+      2>&1 | sed 's/^/    /'
+    echo "  ---- diagnostic: last log lines of $replica"
+    oc -n "$NS" logs "$replica" --tail=12 2>&1 | sed 's/^/    /'
+  fi
+}
+
 t_summary() {
   echo
   echo "  ---- summary: PASS=$PASS FAIL=$FAIL SKIP=$SKIP"
