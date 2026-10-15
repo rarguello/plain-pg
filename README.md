@@ -141,10 +141,10 @@ Known limitations:
 
 ## Tests
 
-The suite runs against a real cluster, no mocks: **28 tests, 269 checks, 0
+The suite runs against a real cluster, no mocks: **30 tests, 287 checks, 0
 failures** covering deploy, replication, manual and automatic failover,
-persistence, backups, scaling, the HPA, metrics, TLS and external access. See
-[docs/tests.md](docs/tests.md).
+persistence, backups, disaster recovery, scaling, the HPA, metrics, TLS and
+external access. See [docs/tests.md](docs/tests.md).
 
 CI runs it too: on every push it lints, validates the manifests (Kubernetes
 schema + the AGENTS.md rules) and scans for secrets; **every night it creates a
@@ -164,7 +164,7 @@ against it, uploading the transcript.
 
 ```
 manifests/  base + components + overlays      scripts/  deploy, failover, backup, restore, ...
-tests/      suite t01..t28 + runner           tools/    static validation of embedded scripts
+tests/      suite t01..t30 + runner           tools/    static validation of embedded scripts
 ```
 
 MIT. See [LICENSE](LICENSE).

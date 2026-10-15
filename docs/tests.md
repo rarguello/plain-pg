@@ -11,8 +11,8 @@ The suite runs against a real cluster; there are no mocks. Each test prints
 
 ## Coverage
 
-Coverage. Last full run against a real cluster: **28/28 tests · 269 checks · 0
-failures** (transcript in [Evidence](#evidence)).
+Last full run against a real cluster: **30/30 tests · 287 checks · 0 failures**
+(transcript in [Evidence](#evidence)).
 
 | Test | What it proves | Checks | Result |
 |---|---|---:|---|
@@ -40,17 +40,21 @@ failures** (transcript in [Evidence](#evidence)).
 | `t22_read_balancing` | Reads through `-r` spread over all instances and return the same data | 4 | PASS |
 | `t23_hpa` | Under load the HPA grows the fleet and the new replica serves reads | 11 | PASS |
 | `t24_deploy_recreate` | `deploy.sh` recreates a deleted StatefulSet with the right replica count | 10 | PASS |
-| `t25_metrics` | The `postgres_exporter` reaches the database and serves metrics | 5 | PASS |
+| `t25_metrics` | The `postgres_exporter` reaches the database and serves metrics | 6 | PASS |
 | `t26_tls` | The service-ca certificate makes PostgreSQL require TLS and replication uses it | 7 | PASS |
 | `t27_tls_byo` | A bring-your-own certificate (a tiny openssl PKI) serves TLS with `verify-full` | 6 | PASS |
 | `t28_external` | A NodePort on `-rw` reaches the primary, and the policy still blocks outsiders | 8 | PASS |
+| `t29_failover_guard` | A declared candidate does not promote while `FAILOVER_GUARD` is set | 7 | PASS |
+| `t30_dr_drill` | With both PGDATA PVCs lost, the cluster is rebuilt and the dump is loaded back | 10 | PASS |
 
 Destructive tests (`t07`, `t08`, `t11`, `t13`, `t15`, `t16`, `t17`, `t23`, `t24`,
-`t26`, `t27`, `t28`) change the cluster but leave it consistent. `t11` deletes the
+`t26`, `t27`, `t28`, `t29`, `t30`) change the cluster but leave it consistent. `t11` deletes the
 PVCs and redeploys from scratch; `t24` deletes the StatefulSet and checks that
 `deploy.sh` recreates it with the right replica count; `t26`/`t27` mount a TLS
 certificate and recreate the pods; `t28` makes `postgresql-rw` a NodePort and
-restores it. `t23` waits for real HPA decisions and only runs from a fresh two-pod
+restores it; `t29` declares a candidate with the guard set and restarts it; `t30`
+deletes the StatefulSet and both PGDATA PVCs and rebuilds from a dump.
+`t23` waits for real HPA decisions and only runs from a fresh two-pod
 lab with `postgresql-0` as primary and no HPA; `t25` needs the
 `monitoring.coreos.com` CRDs and `t26` the service-ca controller, and both
 **skip** without them; `t27` skips without `openssl`. Tests that need `skopeo` and
@@ -69,7 +73,7 @@ not every Job the scripts create.
   exists, Python with PyYAML, and it generates a throwaway
   `postgresql-credentials` Secret from gitignored `secrets/` (a real deploy
   creates it by hand; see `operations.md`).
-- Without a cluster, `make lint` runs shellcheck, renders the six overlays, and
+- Without a cluster, `make lint` runs shellcheck, renders the seven overlays, and
   validates the embedded scripts (`tools/check-scripts.py`) and the AGENTS.md hard
   rules — pinned UBI image, no operators, namespace, auxiliary-pod labels,
   PodSecurity — via `tools/check-policies.py`. CI (`.github/workflows/ci.yml`)
@@ -96,17 +100,13 @@ default, plus the Red Hat pull secret on the namespace's default
 ServiceAccount. The tests read the expected StorageClass from `STORAGE_CLASS`
 (default `lvms-vg1`, the lab's), so the nightly sets `STORAGE_CLASS=local-path`.
 
-The nightly runs `t01`–`t05`, `t10`, `t12`, `t18`, `t19`, `t21`, `t22`. `t06`
-(persistence), `t09` (idempotency) and `t14` (integrity) pass locally on MINC but
-fail on a GitHub-hosted runner: replication does not resume fast enough after a
-primary restart, and MicroShift's server-side apply bumps the StatefulSet on the
-second apply. They stay on a real lab until that is understood. The destructive
-tests (failover, teardown, HPA) also stay on a real lab. The workflow reads the
-pull secret from the `RH_PULL_SECRET` repository secret.
+The nightly runs the whole `quick` subset (14 tests, ~70 s). The destructive tests
+(failover, teardown, HPA) and the optional add-ons stay on a real lab. The workflow
+reads the pull secret from the `RH_PULL_SECRET` repository secret.
 
 ## Evidence
 
 Raw output of full-suite runs:
-[`evidence/2026-10-13-full-suite.txt`](evidence/2026-10-13-full-suite.txt).
+[`evidence/2026-10-15-full-suite.txt`](evidence/2026-10-15-full-suite.txt).
 The per-test check counts are in that transcript; the summary at the end is
 authoritative. It is historical output — rerun the suite after code changes.

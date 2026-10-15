@@ -6,6 +6,6 @@ node). Each file is one full run; the summary at the end is authoritative. A
 
 | File | Date | Result |
 |---|---|---|
-| [`2026-10-13-full-suite.txt`](2026-10-13-full-suite.txt) | 2026-10-13 | 27/27 tests, 259 checks, 0 failures |
+| [`2026-10-15-full-suite.txt`](2026-10-15-full-suite.txt) | 2026-10-15 | 30/30 tests, 287 checks, 0 failures |
 
 Reproduce with `./tests/run-all.sh` (destructive) or `./tests/run-all.sh quick`.
