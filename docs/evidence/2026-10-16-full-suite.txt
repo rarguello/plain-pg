@@ -61,8 +61,8 @@
   [PASS] the replica is in 'streaming' state
   [PASS] sync_state is async or sync
   [PASS] the replay lag is 0 bytes
-  [PASS] row 'repl-1792035728-5009' appears on the replica
-  [PASS] row 'repl-1792035728-5009' is on the primary
+  [PASS] row 'repl-1792103615-17515' appears on the replica
+  [PASS] row 'repl-1792103615-17515' is on the primary
   [PASS] the replica REJECTS writes (read-only)
   [PASS] the replica can read the replicated table
 
@@ -110,18 +110,18 @@
 == t06_persistence.sh
 ═══════════════════════════════════════════════════════════════════════════
 ### t06 persistence and restarts
-  [PASS] row 'persist-1792035842-21212' replicates
+  [PASS] row 'persist-1792103712-3135' replicates
   (restarting the replica postgresql-1)
   [PASS] the replica becomes Ready again
   [PASS] the replica keeps its PVC (same UID)
   [PASS] the replica did NOT re-seed (no 'wiping PGDATA' in logs)
   [PASS] the replica is still standby after restarting
-  [PASS] row 'persist-1792035842-21212' is still on the replica
+  [PASS] row 'persist-1792103712-3135' is still on the replica
   [PASS] replication resumes after restarting the replica
   (restarting the primary postgresql-0)
   [PASS] the primary becomes Ready again
   [PASS] the primary is still primary
-  [PASS] row 'persist-1792035842-21212' is still on the primary
+  [PASS] row 'persist-1792103712-3135' is still on the primary
   [PASS] replication resumes after restarting the primary
 
   ---- summary: PASS=11 FAIL=0 SKIP=0
@@ -130,14 +130,14 @@
 == t07_failover_manual.sh
 ═══════════════════════════════════════════════════════════════════════════
 ### t07 manual failover (round trip)
-  [PASS] row 'fo-1792036011-13895' replicates before the failover
+  [PASS] row 'fo-1792103752-17788' replicates before the failover
   (running scripts/failover-manual.sh postgresql-1)
 Failover: postgresql-0 (primary) -> postgresql-1 (replica)
 [0/5] Disabling AUTO_FAILOVER while the operation lasts
 [1/5] ConfigMap postgresql-role: PRIMARY_POD=postgresql-1
 [2/5] Services: -rw -> postgresql-1, -ro -> postgresql-0
 [3/5] Fencing of the ex-primary postgresql-0
-      deleting postgresql-0 (uid bc385e36) and waiting for its termination
+      deleting postgresql-0 (uid 3a3e0623) and waiting for its termination
       postgresql-0 recreated (new uid)
 [4/5] Recreating pod postgresql-1 so that it promotes
 [5/5] Waiting for postgresql-1 to become primary...
@@ -163,7 +163,7 @@ Failover: postgresql-1 (primary) -> postgresql-0 (replica)
 [1/5] ConfigMap postgresql-role: PRIMARY_POD=postgresql-0
 [2/5] Services: -rw -> postgresql-0, -ro -> postgresql-1
 [3/5] Fencing of the ex-primary postgresql-1
-      deleting postgresql-1 (uid 9ef62722) and waiting for its termination
+      deleting postgresql-1 (uid 46648392) and waiting for its termination
       postgresql-1 recreated (new uid)
 [4/5] Recreating pod postgresql-0 so that it promotes
 [5/5] Waiting for postgresql-0 to become primary...
@@ -198,7 +198,7 @@ Failover: postgresql-1 (primary) -> postgresql-0 (replica)
 [1/5] ConfigMap postgresql-role: PRIMARY_POD=postgresql-0
 [2/5] Services: -rw -> postgresql-0, -ro -> postgresql-1
 [3/5] Fencing of the ex-primary postgresql-1
-      deleting postgresql-1 (uid 5e69b36b) and waiting for its termination
+      deleting postgresql-1 (uid 2006425a) and waiting for its termination
       postgresql-1 recreated (new uid)
 [4/5] Recreating pod postgresql-0 so that it promotes
 [5/5] Waiting for postgresql-0 to become primary...
@@ -279,7 +279,7 @@ Verify with: ./scripts/verify-replication.sh
   [PASS] the backup ends OK
   [PASS] the backup generated the globals file
   [PASS] the backup generated a dump
-  (restore of 20261015-035233-appdb.dump into a new database)
+  (restore of 20261015-224130-appdb.dump into a new database)
   [PASS] the restore ends OK
   [PASS] the restored backup contains the control row
   [PASS] the restore refuses to overwrite an existing database
@@ -342,7 +342,7 @@ Verify with: ./scripts/verify-replication.sh
   [PASS] postgresql-1 is primary
   [PASS] the 100 previous records survived
   (waiting for the writer)
-  confirmed before the failover: 23 | after: 211 | lost: 0
+  confirmed before the failover: 23 | after: 190 | lost: 0
   [PASS] what is lost is a contiguous suffix (no scattered divergence)
   [PASS] not all data confirmed before the failover was lost
   [PASS] exactly one pod is primary at the end
@@ -434,8 +434,8 @@ Verify with: ./scripts/verify-replication.sh
 ### t22 read load balancing (postgresql-r)
   [PASS] postgresql-r selects every DB pod
     distribution over 40 connections (ip count):
-      10.128.1.0 22
-      10.128.1.1 18
+      10.128.1.194 16
+      10.128.1.195 24
   [PASS] all instances answered at least one connection
   [PASS] no instance is starved (each got >= 4 of 40)
   [PASS] every instance returns the same replicated row
@@ -458,10 +458,10 @@ NOTICE:  table "pgbench_history" does not exist, skipping
 NOTICE:  table "pgbench_tellers" does not exist, skipping
 creating tables...
 generating data (client-side)...
-100000 of 100000 tuples (100%) of pgbench_accounts done (elapsed 0.02 s, remaining 0.00 s)
+100000 of 100000 tuples (100%) of pgbench_accounts done (elapsed 0.04 s, remaining 0.00 s)
 vacuuming...
 creating primary keys...
-done in 0.18 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0.07 s, vacuum 0.04 s, primary keys 0.06 s).
+done in 0.18 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0.08 s, vacuum 0.04 s, primary keys 0.06 s).
   [PASS] the HPA grows the fleet under read load
     fleet grew to 3 pods (new: postgresql-2)
   [PASS] postgresql-2 becomes Ready
@@ -589,7 +589,7 @@ done in 0.18 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0
   [PASS] deploy.sh rebuilds the cluster
   [PASS] the two pods are Ready again
   [PASS] replication is active after the rebuild
-  (restoring 20261015-041620-appdb.dump into appdb with FORCE=1)
+  (restoring 20261015-230130-appdb.dump into appdb with FORCE=1)
   [PASS] the restore ends OK
   [PASS] the control row is back in the application database
   [PASS] the restored table is owned by the application user
@@ -597,7 +597,7 @@ done in 0.18 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0
   ---- summary: PASS=10 FAIL=0 SKIP=0
 
 ═══════════════════════════════════════════════════════════════════════════
-== SUMMARY  (2173s)
+== SUMMARY  (1784s)
 ═══════════════════════════════════════════════════════════════════════════
   PASS t01
   PASS t02

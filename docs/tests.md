@@ -107,6 +107,6 @@ reads the pull secret from the `RH_PULL_SECRET` repository secret.
 ## Evidence
 
 Raw output of full-suite runs:
-[`evidence/2026-10-15-full-suite.txt`](evidence/2026-10-15-full-suite.txt).
+[`evidence/2026-10-16-full-suite.txt`](evidence/2026-10-16-full-suite.txt).
 The per-test check counts are in that transcript; the summary at the end is
 authoritative. It is historical output — rerun the suite after code changes.
