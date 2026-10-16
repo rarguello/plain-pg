@@ -186,6 +186,7 @@ against it, uploading the transcript.
 - [docs/backups.md](docs/backups.md) — backups and restore
 - [docs/scaling.md](docs/scaling.md) — reads and the HPA
 - [docs/tests.md](docs/tests.md) — the test suite
+- [docs/image-matrix.md](docs/image-matrix.md) — which platforms/versions exist and what was probed (investigation)
 - [docs/evidence/README.md](docs/evidence/README.md) — raw output of suite runs
 
 ## Layout
