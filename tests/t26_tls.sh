@@ -28,7 +28,7 @@ oc -n "$NS" annotate svc postgresql-hl \
   service.beta.openshift.io/serving-cert-secret-name- >/dev/null 2>&1 || true
 oc -n "$NS" delete configmap postgresql-tls-ca --ignore-not-found >/dev/null 2>&1
 oc -n "$NS" delete secret postgresql-tls --ignore-not-found >/dev/null 2>&1
-env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$ROOT_DIR/manifests/overlays/lab-tls" >/dev/null
+env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$ROOT_DIR/manifests/overlays/ha-tls" >/dev/null
 
 wait_for 120 "the service-ca issues the certificate" \
   bash -c "oc -n $NS get secret postgresql-tls >/dev/null 2>&1"

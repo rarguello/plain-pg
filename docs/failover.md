@@ -55,7 +55,7 @@ oc -n plain-pg patch configmap postgresql-role --type merge \
   -p '{"data":{"AUTO_FAILOVER":"true","FAILOVER_GRACE_SECONDS":"120"}}'
 ```
 
-`AUTO_FAILOVER=false` disables it without deleting the CronJob. The `lab-manual`
+`AUTO_FAILOVER=false` disables it without deleting the CronJob. The `ha-manual`
 overlay does not include it.
 
 ## Limits

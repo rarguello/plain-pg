@@ -101,7 +101,7 @@ spec:
 EOF
 
 if ! oc -n "$NS" get hpa postgresql-read >/dev/null 2>&1; then
-  echo "    (no HPA deployed; run this with manifests/overlays/lab-autoscale)"
+  echo "    (no HPA deployed; run this with manifests/overlays/ha-autoscale)"
 fi
 
 RESULT=Timeout

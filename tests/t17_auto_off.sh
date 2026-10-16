@@ -44,7 +44,7 @@ check_contains "the controller logs that auto-failover is disabled" \
 
 # Restore
 oc -n "$NS" delete networkpolicy test-isolate-primary --ignore-not-found >/dev/null 2>&1
-oc -n "$NS" apply -k "$ROOT_DIR/manifests/overlays/lab" >/dev/null 2>&1
+oc -n "$NS" apply -k "$ROOT_DIR/manifests/overlays/ha" >/dev/null 2>&1
 check_eq "AUTO_FAILOVER is true again" "true" "$(cm_value AUTO_FAILOVER)"
 check_eq "the primary is still $PRIMARY" "$PRIMARY" "$(primary_pod)"
 

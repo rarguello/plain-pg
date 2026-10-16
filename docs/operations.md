@@ -9,7 +9,7 @@ startup, so there is nothing else to run.
 ```bash
 oc apply -f manifests/base/namespace.yaml
 # create the Secret first: the full command is under Credentials, below
-oc apply -k manifests/overlays/lab
+oc apply -k manifests/overlays/ha
 oc -n plain-pg get pods      # wait for 2/2 Ready
 ```
 
@@ -19,17 +19,52 @@ HPA. To change something live, patch that object; to return to the initial prima
 `./scripts/failover-manual.sh postgresql-0`.
 
 For manual failover only (no failover CronJob), apply
-`manifests/overlays/lab-manual` instead.
+`manifests/overlays/ha-manual` instead.
+
+### Overlays
+
+`manifests/base` is the HA core (a primary and a hot standby) with no optional
+feature; `manifests/components` holds the features; each overlay is a named
+example that combines them.
+
+| Overlay | Pods | Adds | Use it when |
+|---|---:|---|---|
+| `ha` | 2 | automatic failover (the CronJob) | default; `scripts/deploy.sh` applies it |
+| `ha-manual` | 2 | — | you promote by hand only |
+| `single` | 1 | — | you do not want a replica |
+| `ha-metrics` | 2 | the `postgres_exporter` | Prometheus scrapes PostgreSQL |
+| `ha-tls` | 2 | TLS, certificate from service-ca | clients must encrypt |
+| `ha-tls-byo` | 2 | TLS, your own certificate | you have your own PKI |
+| `ha-external` | 2 | a NodePort on `postgresql-rw` | clients outside the cluster |
+| `ha-autoscale` | 2 | the read HPA | reads must scale |
+| `single-tls` | 1 | TLS, certificate from service-ca | one pod, encrypted |
+
+The components are meant to be combined, so your own mix needs no new overlay —
+a kustomization of your own is enough:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: plain-pg
+resources: [../../base]
+components:
+  - ../../components/single-instance
+  - ../../components/metrics
+  - ../../components/tls
+  - ../../components/tls-service-ca
+```
+
+Available components: `automatic-failover`, `single-instance`, `metrics`,
+`read-scaling`, `tls`, `tls-service-ca`, `external-access`.
 
 `plain-pg` is only the example namespace. To deploy elsewhere, change
 `metadata.name` in `manifests/base/namespace.yaml`, the `namespace:` field in each
-overlay (`lab`, `lab-manual`, `lab-autoscale`, `lab-metrics`, `lab-tls`,
-`lab-tls-byo`, `lab-external`, `lab-single`, `lab-single-tls`), and `NS` in
-`scripts/lib.sh`; the commands in this document then need the same namespace.
+overlay, and `NS` in `scripts/lib.sh`; the commands in this document then need the
+same namespace.
 
 ## Single instance (no replica)
 
-`overlays/lab-single` is the same deployment with **one pod**: the same image
+`overlays/single` is the same deployment with **one pod**: the same image
 pinned by digest, non-root, probes, resources, NetworkPolicy, per-pod PVC and
 `pg_dump` backups. It leaves out what only makes sense with a standby: the
 automatic-failover CronJob (there is nothing to promote) and the `postgresql-ro`
@@ -37,7 +72,7 @@ Service (it pins a replica that does not exist; read through `postgresql-r`,
 which selects the single instance).
 
 ```bash
-oc apply -k manifests/overlays/lab-single
+oc apply -k manifests/overlays/single
 oc -n plain-pg get pods                      # 1/1 Ready
 ```
 
@@ -51,21 +86,21 @@ oc -n plain-pg scale sts postgresql --replicas=2
 
 Scaling back down removes the highest ordinal; the primary keeps running and its
 data. What the scale alone does **not** give you is the `postgresql-ro` Service
-and the failover CronJob — apply `manifests/overlays/lab` for those (it also sets
+and the failover CronJob — apply `manifests/overlays/ha` for those (it also sets
 `AUTO_FAILOVER=true`).
 
 `oc apply` does not delete objects that the new overlay no longer defines, so
 switching from HA down to the single profile needs the leftovers removed by hand:
 
 ```bash
-oc apply -k manifests/overlays/lab-single
+oc apply -k manifests/overlays/single
 oc -n plain-pg delete svc postgresql-ro cronjob postgresql-failover
 ```
 
 With one pod there is **no HA**: a restart, an upgrade or a node failure is
 downtime, and the dumps on `postgresql-backups` are the only recovery (see
 [Recovery](#recovery)). `t31` runs this profile and the step to HA; TLS is
-available here too, with `overlays/lab-single-tls` (see [TLS](#tls), and `t32`).
+available here too, with `overlays/single-tls` (see [TLS](#tls), and `t32`).
 
 ## Credentials
 
@@ -97,7 +132,7 @@ preserving a live failover: it leaves the `postgresql-role` ConfigMap alone, and
 applies the StatefulSet and the `-rw`/`-ro` Services with **merge patches** that
 omit the operational fields (`spec.replicas` and `spec.selector`). So the role, the
 routing and a replica count owned by the HPA survive, while everything else (for
-example the Service `type` of `lab-external`) still applies. It generates a
+example the Service `type` of `ha-external`) still applies. It generates a
 throwaway Secret in gitignored `secrets/` and waits for the pods. It needs Python
 with PyYAML when it reapplies over an existing deployment. The other scripts
 (`verify-replication.sh`, `failover-manual.sh`, `backup-now.sh`,
@@ -106,11 +141,11 @@ see `tests.md`.
 
 ## Metrics
 
-`components/metrics` (overlay `lab-metrics`) adds a `postgres_exporter`, a
+`components/metrics` (overlay `ha-metrics`) adds a `postgres_exporter`, a
 `Service` and a `ServiceMonitor`, so OpenShift's monitoring scrapes PostgreSQL:
 
 ```bash
-oc apply -k manifests/overlays/lab-metrics
+oc apply -k manifests/overlays/ha-metrics
 ```
 
 It needs the `monitoring.coreos.com` CRDs (the monitoring stack; MicroShift does
@@ -121,7 +156,7 @@ entrypoint grants that user `pg_monitor` (a background task in the base
 ConfigMap), so the exporter reads `pg_stat_*` without the superuser.
 
 Its DSN uses `sslmode=disable` (the Go driver has no `prefer`). If you also use
-`lab-tls`, patch it to `sslmode=require` (or `verify-ca` with the CA mounted):
+`ha-tls`, patch it to `sslmode=require` (or `verify-ca` with the CA mounted):
 
 ```bash
 oc -n plain-pg patch deploy postgresql-metrics --type merge -p \
@@ -136,15 +171,15 @@ provide the certificate:
 
 - **`components/tls-service-ca`** — OpenShift's **service-ca** issues it for
   `postgresql-hl` into the Secret `postgresql-tls` and injects the CA into
-  `postgresql-tls-ca`. Nothing is stored in git. Used by `lab-tls` (HA) and
-  `lab-single-tls` (one pod).
-- **`overlays/lab-tls-byo`** — **your own certificate**: create the two objects,
+  `postgresql-tls-ca`. Nothing is stored in git. Used by `ha-tls` (HA) and
+  `single-tls` (one pod).
+- **`overlays/ha-tls-byo`** — **your own certificate**: create the two objects,
   apply the overlay and recreate the pods:
 
 ```bash
 oc -n plain-pg create secret tls postgresql-tls --cert=tls.crt --key=tls.key
 oc -n plain-pg create configmap postgresql-tls-ca --from-file=ca.crt
-oc apply -k manifests/overlays/lab-tls-byo
+oc apply -k manifests/overlays/ha-tls-byo
 oc -n plain-pg delete pod postgresql-1 postgresql-0   # OnDelete: recreate to mount it
 ```
 
@@ -162,13 +197,13 @@ install the first `initdb` does not pick TLS up: restart the pods once.
 
 ## External access (NodePort)
 
-`overlays/lab-external` publishes the primary through a **NodePort** on
+`overlays/ha-external` publishes the primary through a **NodePort** on
 `postgresql-rw` (port 30432), so a client outside the cluster reaches it at
 `<node-ip>:30432`. A failover already repoints the selector, so external clients
 follow the new primary.
 
 ```bash
-./scripts/deploy.sh manifests/overlays/lab-external
+./scripts/deploy.sh manifests/overlays/ha-external
 oc get nodes -o wide                       # the node address
 psql -h <node-ip> -p 30432 -U app -d appdb
 ```
@@ -185,7 +220,7 @@ oc -n plain-pg patch networkpolicy postgresql-ingress --type merge -p \
   '{"spec":{"ingress":[{"from":[{"ipBlock":{"cidr":"203.0.113.0/24"}}],"ports":[{"protocol":"TCP","port":5432}]}]}}'
 ```
 
-- **Use TLS.** Combine it with `lab-tls` or `lab-tls-byo`; otherwise the password
+- **Use TLS.** Combine it with `ha-tls` or `ha-tls-byo`; otherwise the password
   and the data cross the network in clear text. Clients then use
   `sslmode=require` (or `verify-ca` with the CA).
 

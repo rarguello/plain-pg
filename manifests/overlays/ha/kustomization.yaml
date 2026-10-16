@@ -1,8 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# COMPLETE lab overlay: base + automatic failover enabled.
-# It is the one scripts/deploy.sh uses by default.
+# HA profile: the base (a primary and a hot standby) plus the automatic-failover
+# CronJob, enabled in the role ConfigMap. It is the default for scripts/deploy.sh.
+# For manual failover only (no CronJob), use overlays/ha-manual.
 
 namespace: plain-pg
 
@@ -22,7 +23,8 @@ patches:
         path: /data/AUTO_FAILOVER
         value: "true"
 
-# PostgreSQL 18 image on UBI10, pinned by digest for reproducibility.
+# Red Hat's PostgreSQL 18 image, pinned by digest for reproducibility. It is a
+# RHEL image: Red Hat publishes no UBI variant (see docs/image-matrix.md).
 # Update the digest: see scripts/update-digest.sh
 images:
   - name: registry.redhat.io/rhel10/postgresql-18

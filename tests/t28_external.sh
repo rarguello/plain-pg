@@ -12,7 +12,7 @@ NODE_PORT=30432
 check "the node has an address" bash -c "[ -n '$NODE_IP' ]"
 
 echo "  (deploying the external-access overlay)"
-env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$ROOT_DIR/manifests/overlays/lab-external" >/dev/null
+env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$ROOT_DIR/manifests/overlays/ha-external" >/dev/null
 
 check_eq "postgresql-rw is a NodePort" "NodePort" \
   "$(oc -n "$NS" get svc postgresql-rw -o jsonpath='{.spec.type}' 2>/dev/null)"
@@ -37,7 +37,7 @@ check "the NetworkPolicy has no external ipBlock allow" bash -c \
   "! oc -n $NS get networkpolicy postgresql-ingress -o jsonpath='{.spec.ingress[*].from[*].ipBlock}' 2>/dev/null | grep -q ."
 
 echo "  (restoring the ClusterIP Service)"
-env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$ROOT_DIR/manifests/overlays/lab" >/dev/null
+env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$ROOT_DIR/manifests/overlays/ha" >/dev/null
 check_eq "postgresql-rw is a ClusterIP again" "ClusterIP" \
   "$(oc -n "$NS" get svc postgresql-rw -o jsonpath='{.spec.type}' 2>/dev/null)"
 

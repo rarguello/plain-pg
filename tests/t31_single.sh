@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t31 -- Single instance, and the step from there to HA: overlays/lab-single
+# t31 -- Single instance, and the step from there to HA: overlays/single
 #        runs one pod with the same hardening as the HA profile, and scaling the
 #        StatefulSet to 2 replicas brings up a hot standby on its own.
 #        Destructive: it changes the topology (restored at the end).
@@ -8,9 +8,9 @@ load_credentials
 
 echo "### t31 single instance (no replica)"
 
-echo "  (applying overlays/lab-single)"
-oc apply -k "$ROOT_DIR/manifests/overlays/lab-single" >/dev/null 2>&1 \
-  || c_fail "applying overlays/lab-single failed"
+echo "  (applying overlays/single)"
+oc apply -k "$ROOT_DIR/manifests/overlays/single" >/dev/null 2>&1 \
+  || c_fail "applying overlays/single failed"
 # `oc apply` does not prune: coming from the HA profile, remove what the single
 # profile does not define (see docs/operations.md).
 oc -n "$NS" delete svc postgresql-ro --ignore-not-found >/dev/null 2>&1
@@ -53,8 +53,8 @@ wait_for 120 "replication is streaming" streaming
 check "the replicated row is visible through postgresql-r" through postgresql-r
 
 echo "  (restoring the full lab overlay)"
-oc apply -k "$ROOT_DIR/manifests/overlays/lab" >/dev/null 2>&1 \
-  || c_fail "applying overlays/lab failed"
+oc apply -k "$ROOT_DIR/manifests/overlays/ha" >/dev/null 2>&1 \
+  || c_fail "applying overlays/ha failed"
 wait_for 300 "two pods are Ready again" wait_db_ready 2
 check_eq "replication is still streaming" "1" "$(streaming_count "$(primary_pod)")"
 check "the replica Service is back" oc -n "$NS" get svc postgresql-ro

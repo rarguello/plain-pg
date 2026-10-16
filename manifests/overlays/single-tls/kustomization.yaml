@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# SINGLE INSTANCE plus TLS, with the certificate issued by OpenShift's service-ca
+# (nothing is stored in git). Same shape as overlays/ha-tls, on top of the
+# single-instance profile.
+# For your own certificate, create the Secret postgresql-tls and the ConfigMap
+# postgresql-tls-ca by hand and apply components/tls over overlays/single.
+
+namespace: plain-pg
+
+resources:
+  - ../single
+
+components:
+  - ../../components/tls
+  - ../../components/tls-service-ca

@@ -39,7 +39,7 @@ if [ "$HAD_HPA" = 1 ] || [ "$START_REPLICAS" != 2 ] || [ "$PRIMARY" != postgresq
 fi
 
 echo "  (deploying the read-scaling component)"
-env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$ROOT_DIR/manifests/overlays/lab-autoscale" >/dev/null
+env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$ROOT_DIR/manifests/overlays/ha-autoscale" >/dev/null
 check "the HPA exists" oc -n "$NS" get hpa postgresql-read
 check_eq "minReplicas is 2" "2" \
   "$(oc -n "$NS" get hpa postgresql-read -o jsonpath='{.spec.minReplicas}' 2>/dev/null)"

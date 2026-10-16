@@ -53,7 +53,7 @@ fi
 
 if ! oc get namespace "$NS" >/dev/null 2>&1; then
   echo "==> Namespace $NS does not exist yet; it will be created when the manifests are applied." >&2
-  echo "    (create it with: oc apply -k manifests/overlays/lab)" >&2
+  echo "    (create it with: oc apply -k manifests/overlays/ha)" >&2
   exit 1
 fi
 

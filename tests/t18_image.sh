@@ -5,7 +5,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib-test.sh"
 
 echo "### t18 image and digest"
 
-PIN="$(grep -oE 'sha256:[0-9a-f]{64}' "$ROOT_DIR/manifests/overlays/lab/kustomization.yaml" | head -1)"
+PIN="$(grep -oE 'sha256:[0-9a-f]{64}' "$ROOT_DIR/manifests/overlays/ha/kustomization.yaml" | head -1)"
 check "the overlay pins a digest" bash -c "[ -n '$PIN' ]"
 
 RUNNING="$(oc -n "$NS" get sts postgresql -o jsonpath='{.spec.template.spec.containers[0].image}')"

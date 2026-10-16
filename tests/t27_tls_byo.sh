@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # t27 -- TLS with YOUR OWN certificate: this test generates a small PKI with
 #        openssl, creates the Secret and the ConfigMap by hand, and applies
-#        overlays/lab-tls-byo. Needs openssl where the tests run.
+#        overlays/ha-tls-byo. Needs openssl where the tests run.
 source "$(dirname "${BASH_SOURCE[0]}")/lib-test.sh"
 load_credentials
 PRIMARY="$(primary_pod)"
@@ -32,7 +32,7 @@ openssl x509 -req -in tls.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 1 \
 # Apply the overlay FIRST: it drops any service-ca annotation left by t26, so
 # service-ca stops managing the Secret before we write our own.
 echo "  (deploying the bring-your-own overlay)"
-env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$ROOT_DIR/manifests/overlays/lab-tls-byo" >/dev/null
+env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$ROOT_DIR/manifests/overlays/ha-tls-byo" >/dev/null
 wait_for 60 "the service-ca annotation is gone from postgresql-hl" bash -c \
   "! oc -n $NS get svc postgresql-hl -o jsonpath='{.metadata.annotations.service\.beta\.openshift\.io/serving-cert-secret-name}' | grep -q ."
 

@@ -109,7 +109,7 @@ wait_for 300 "$PRIMARY is primary again" is_primary "$PRIMARY"
 wait_for 300 "$REPLICA is standby again" is_standby "$REPLICA"
 wait_for 180 "replication re-established" streaming "$PRIMARY"
 
-oc -n "$NS" apply -k "$ROOT_DIR/manifests/overlays/lab" >/dev/null 2>&1
+oc -n "$NS" apply -k "$ROOT_DIR/manifests/overlays/ha" >/dev/null 2>&1
 check_eq "FAILOVER_GRACE_SECONDS restored to 120" "120" "$(cm_value FAILOVER_GRACE_SECONDS)"
 
 t_summary

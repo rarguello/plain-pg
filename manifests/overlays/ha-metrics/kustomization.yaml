@@ -1,13 +1,13 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Same as overlays/lab plus PostgreSQL metrics for Prometheus.
+# HA profile plus PostgreSQL metrics for Prometheus.
 # Needs the monitoring.coreos.com CRDs (OpenShift monitoring).
 
 namespace: plain-pg
 
 resources:
-  - ../lab
+  - ../ha
 
 components:
   - ../../components/metrics

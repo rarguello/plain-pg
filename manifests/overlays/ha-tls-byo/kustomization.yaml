@@ -1,8 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Same as overlays/lab plus TLS for PostgreSQL, with YOUR OWN certificate:
-# create these two objects first (nothing here generates them):
+# HA profile plus TLS for PostgreSQL, with YOUR OWN certificate: create these two
+# objects first (nothing here generates them):
 #
 #   oc -n plain-pg create secret tls postgresql-tls --cert=tls.crt --key=tls.key
 #   oc -n plain-pg create configmap postgresql-tls-ca --from-file=ca.crt
@@ -14,7 +14,7 @@ kind: Kustomization
 namespace: plain-pg
 
 resources:
-  - ../lab
+  - ../ha
 
 components:
   - ../../components/tls

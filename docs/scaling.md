@@ -14,7 +14,7 @@ or a scale-up it already points at the right set. `-rw`/`-ro` select by pod name
 and are repointed by the failover scripts; `-ro` pins exactly **one** replica, so
 extra replicas (from the HPA or a manual scale) are reachable only through `-r`.
 
-The single-instance profile (`lab-single`) has no `postgresql-ro`: there is no
+The single-instance profile (`single`) has no `postgresql-ro`: there is no
 replica to pin. Read through `postgresql-r`, which then selects only the primary.
 
 `postgresql-r` balances **per TCP connection**, not per query: many short
@@ -30,7 +30,7 @@ replication lag.
 soon as it is Ready, with no Service change.
 
 ```bash
-./scripts/deploy.sh manifests/overlays/lab-autoscale   # lab + HPA
+./scripts/deploy.sh manifests/overlays/ha-autoscale   # lab + HPA
 ./scripts/read-load.sh 180 12                          # 12 readers, 3 minutes
 oc -n plain-pg get hpa postgresql-read
 ```

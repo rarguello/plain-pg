@@ -149,7 +149,7 @@ skopeo inspect --authfile ~/.pull-secret.json docker://registry.redhat.io/rhel9/
 # one combination on the lab (destructive: wipes the DB PVCs)
 oc -n plain-pg delete sts postgresql --wait=true
 oc -n plain-pg delete pvc pgdata-postgresql-0 pgdata-postgresql-1 --wait=true
-oc apply -k manifests/overlays/lab
+oc apply -k manifests/overlays/ha
 oc -n plain-pg set image sts/postgresql postgresql=registry.redhat.io/rhel9/postgresql-16@sha256:…
 oc -n plain-pg delete pod postgresql-0 postgresql-1
 oc -n plain-pg exec postgresql-0 -- psql -U postgres -tAc 'SELECT version()'

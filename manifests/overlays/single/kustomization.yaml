@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# SINGLE-INSTANCE profile: one pod, no replica. It keeps everything that is not
+# about replication (probes, resources, NetworkPolicy, per-pod PVC, pg_dump
+# backups) and drops what only makes sense with a standby. See
+# components/single-instance and docs/operations.md.
+#
+# Going to HA later is one command (`oc scale sts postgresql --replicas=2`), but
+# re-applying THIS overlay over a lab that has 2 replicas scales it down: use
+# `oc apply -k`, not scripts/deploy.sh (which preserves the live replica count).
+
+namespace: plain-pg
+
+resources:
+  - ../../base
+
+components:
+  - ../../components/single-instance
+
+# Red Hat's PostgreSQL 18 image, pinned by digest for reproducibility. It is a
+# RHEL image: Red Hat publishes no UBI variant (see docs/image-matrix.md).
+images:
+  - name: registry.redhat.io/rhel10/postgresql-18
+    digest: sha256:2e04d97c53cd19e9fc855195f0585925fd2a704e42cb158d9c96b57747631882

@@ -1,7 +1,7 @@
 # Shortcuts. All targets assume `oc` logged in to the cluster.
 SHELL    := /usr/bin/env bash
 NS       ?= plain-pg
-OVERLAY  ?= manifests/overlays/lab
+OVERLAY  ?= manifests/overlays/ha
 RENDERED := /tmp/plain-pg-rendered
 
 .PHONY: help deploy teardown verify failover backup lint ci test test-quick
@@ -34,17 +34,17 @@ backup:
 
 lint:
 	shellcheck -S warning scripts/*.sh tests/*.sh
-	oc kustomize manifests/overlays/lab > $(RENDERED).lab.yaml
-	oc kustomize manifests/overlays/lab-manual > $(RENDERED).lab-manual.yaml
-	oc kustomize manifests/overlays/lab-autoscale > $(RENDERED).lab-autoscale.yaml
-	oc kustomize manifests/overlays/lab-metrics > $(RENDERED).lab-metrics.yaml
-	oc kustomize manifests/overlays/lab-tls > $(RENDERED).lab-tls.yaml
-	oc kustomize manifests/overlays/lab-tls-byo > $(RENDERED).lab-tls-byo.yaml
-	oc kustomize manifests/overlays/lab-external > $(RENDERED).lab-external.yaml
-	oc kustomize manifests/overlays/lab-single > $(RENDERED).lab-single.yaml
-	oc kustomize manifests/overlays/lab-single-tls > $(RENDERED).lab-single-tls.yaml
-	python3 tools/check-scripts.py $(RENDERED).lab.yaml $(RENDERED).lab-manual.yaml
-	python3 tools/check-policies.py $(RENDERED).lab.yaml $(RENDERED).lab-manual.yaml $(RENDERED).lab-autoscale.yaml $(RENDERED).lab-metrics.yaml $(RENDERED).lab-tls.yaml $(RENDERED).lab-tls-byo.yaml $(RENDERED).lab-external.yaml $(RENDERED).lab-single.yaml $(RENDERED).lab-single-tls.yaml
+	oc kustomize manifests/overlays/ha > $(RENDERED).ha.yaml
+	oc kustomize manifests/overlays/ha-manual > $(RENDERED).ha-manual.yaml
+	oc kustomize manifests/overlays/ha-autoscale > $(RENDERED).ha-autoscale.yaml
+	oc kustomize manifests/overlays/ha-metrics > $(RENDERED).ha-metrics.yaml
+	oc kustomize manifests/overlays/ha-tls > $(RENDERED).ha-tls.yaml
+	oc kustomize manifests/overlays/ha-tls-byo > $(RENDERED).ha-tls-byo.yaml
+	oc kustomize manifests/overlays/ha-external > $(RENDERED).ha-external.yaml
+	oc kustomize manifests/overlays/single > $(RENDERED).single.yaml
+	oc kustomize manifests/overlays/single-tls > $(RENDERED).single-tls.yaml
+	python3 tools/check-scripts.py $(RENDERED).ha.yaml $(RENDERED).ha-manual.yaml
+	python3 tools/check-policies.py $(RENDERED).ha.yaml $(RENDERED).ha-manual.yaml $(RENDERED).ha-autoscale.yaml $(RENDERED).ha-metrics.yaml $(RENDERED).ha-tls.yaml $(RENDERED).ha-tls-byo.yaml $(RENDERED).ha-external.yaml $(RENDERED).single.yaml $(RENDERED).single-tls.yaml
 
 # The same checks CI runs, for the tools that are installed locally.
 ci: lint

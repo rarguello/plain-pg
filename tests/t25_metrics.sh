@@ -14,7 +14,7 @@ if ! oc get crd servicemonitors.monitoring.coreos.com >/dev/null 2>&1; then
 fi
 
 echo "  (deploying the metrics component)"
-env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$ROOT_DIR/manifests/overlays/lab-metrics" >/dev/null
+env NAMESPACE="$NS" "$ROOT_DIR/scripts/deploy.sh" "$ROOT_DIR/manifests/overlays/ha-metrics" >/dev/null
 
 check "the exporter Deployment becomes Available" \
   oc -n "$NS" wait --for=condition=Available deployment/postgresql-metrics --timeout=180s

@@ -30,7 +30,7 @@ jobs:
         run: |
           printf '%s' '${{ secrets.RH_PULL_SECRET }}' > "$AUTHFILE"
           CURRENT="$(./scripts/update-digest.sh | awk '/^Digest:/{print $2}')"
-          PINNED="$(grep -oE 'sha256:[0-9a-f]{64}' manifests/overlays/lab/kustomization.yaml | head -1)"
+          PINNED="$(grep -oE 'sha256:[0-9a-f]{64}' manifests/overlays/ha/kustomization.yaml | head -1)"
           echo "pinned=$PINNED registry=$CURRENT"
           if [ -z "$CURRENT" ] || [ "$CURRENT" = "$PINNED" ]; then
             echo "The pin is up to date."

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t32 -- Single instance + TLS: overlays/lab-single-tls runs one pod that
+# t32 -- Single instance + TLS: overlays/single-tls runs one pod that
 #        requires TLS, with the certificate issued by OpenShift's service-ca.
 #        Needs the service-ca controller; skips without it.
 #        Destructive: it changes the topology and the TLS state (restored).
@@ -14,7 +14,7 @@ if ! oc -n openshift-service-ca get deploy service-ca >/dev/null 2>&1; then
   exit $?
 fi
 
-echo "  (applying overlays/lab-single-tls)"
+echo "  (applying overlays/single-tls)"
 # Same clean-up as t26: a previous test may have left its own Secret/ConfigMap
 # and service-ca records a generation error when the Secret is deleted.
 oc -n "$NS" annotate svc postgresql-hl \
@@ -27,8 +27,8 @@ oc -n "$NS" delete configmap postgresql-tls-ca --ignore-not-found >/dev/null 2>&
 oc -n "$NS" delete secret postgresql-tls --ignore-not-found >/dev/null 2>&1
 oc -n "$NS" delete svc postgresql-ro --ignore-not-found >/dev/null 2>&1
 oc -n "$NS" delete cronjob postgresql-failover --ignore-not-found >/dev/null 2>&1
-oc apply -k "$ROOT_DIR/manifests/overlays/lab-single-tls" >/dev/null 2>&1 \
-  || c_fail "applying overlays/lab-single-tls failed"
+oc apply -k "$ROOT_DIR/manifests/overlays/single-tls" >/dev/null 2>&1 \
+  || c_fail "applying overlays/single-tls failed"
 
 wait_for 120 "the service-ca issues the certificate" \
   bash -c "oc -n $NS get secret postgresql-tls >/dev/null 2>&1"
@@ -60,8 +60,8 @@ plaintext_refused() {
 check "a plaintext-only client is refused" plaintext_refused
 
 echo "  (restoring the full lab overlay, without TLS)"
-oc apply -k "$ROOT_DIR/manifests/overlays/lab" >/dev/null 2>&1 \
-  || c_fail "applying overlays/lab failed"
+oc apply -k "$ROOT_DIR/manifests/overlays/ha" >/dev/null 2>&1 \
+  || c_fail "applying overlays/ha failed"
 oc -n "$NS" delete pod postgresql-1 postgresql-0 --ignore-not-found >/dev/null 2>&1
 wait_for 300 "two pods are Ready again" wait_db_ready 2
 check_eq "the second pod is a standby" "t" "$(pod_in_recovery "$(replica_pods | head -1)")"

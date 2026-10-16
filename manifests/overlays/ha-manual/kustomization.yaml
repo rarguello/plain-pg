@@ -1,7 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# MINIMAL overlay: replication + MANUAL failover only. No CronJob, no RBAC,
+# Minimal HA profile: replication + MANUAL failover only. No CronJob, no RBAC,
 # no automatic failover (AUTO_FAILOVER stays at "false").
 
 namespace: plain-pg
@@ -9,6 +9,8 @@ namespace: plain-pg
 resources:
   - ../../base
 
+# Red Hat's PostgreSQL 18 image, pinned by digest for reproducibility. It is a
+# RHEL image: Red Hat publishes no UBI variant (see docs/image-matrix.md).
 images:
   - name: registry.redhat.io/rhel10/postgresql-18
     digest: sha256:2e04d97c53cd19e9fc855195f0585925fd2a704e42cb158d9c96b57747631882

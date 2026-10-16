@@ -33,18 +33,18 @@ jobs:
 
       - name: Render the overlays
         run: |
-          for o in lab lab-manual lab-autoscale lab-metrics lab-tls lab-tls-byo lab-external lab-single lab-single-tls; do
+          for o in ha ha-manual ha-autoscale ha-metrics ha-tls ha-tls-byo ha-external single single-tls; do
             kustomize build "manifests/overlays/$o" > "/tmp/$o.yaml"
           done
 
       - name: Embedded scripts (bash -n + shellcheck)
-        run: python3 tools/check-scripts.py /tmp/lab.yaml /tmp/lab-manual.yaml
+        run: python3 tools/check-scripts.py /tmp/ha.yaml /tmp/ha-manual.yaml
 
       - name: Policies (AGENTS.md hard rules)
-        run: python3 tools/check-policies.py /tmp/lab.yaml /tmp/lab-manual.yaml /tmp/lab-autoscale.yaml /tmp/lab-metrics.yaml /tmp/lab-tls.yaml /tmp/lab-tls-byo.yaml /tmp/lab-external.yaml /tmp/lab-single.yaml /tmp/lab-single-tls.yaml
+        run: python3 tools/check-policies.py /tmp/ha.yaml /tmp/ha-manual.yaml /tmp/ha-autoscale.yaml /tmp/ha-metrics.yaml /tmp/ha-tls.yaml /tmp/ha-tls-byo.yaml /tmp/ha-external.yaml /tmp/single.yaml /tmp/single-tls.yaml
 
       - name: Kubernetes schema (kubeconform)
-        run: kubeconform -summary -ignore-missing-schemas /tmp/lab.yaml /tmp/lab-manual.yaml /tmp/lab-autoscale.yaml /tmp/lab-metrics.yaml /tmp/lab-tls.yaml /tmp/lab-tls-byo.yaml /tmp/lab-external.yaml /tmp/lab-single.yaml /tmp/lab-single-tls.yaml
+        run: kubeconform -summary -ignore-missing-schemas /tmp/ha.yaml /tmp/ha-manual.yaml /tmp/ha-autoscale.yaml /tmp/ha-metrics.yaml /tmp/ha-tls.yaml /tmp/ha-tls-byo.yaml /tmp/ha-external.yaml /tmp/single.yaml /tmp/single-tls.yaml
 
       - name: yamllint
         run: yamllint -f parsable manifests .github

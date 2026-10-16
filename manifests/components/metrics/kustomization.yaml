@@ -3,7 +3,7 @@ kind: Component
 
 # Optional component: PostgreSQL metrics for Prometheus (postgres_exporter, a
 # Service and a ServiceMonitor). Needs the monitoring.coreos.com CRDs, so it is
-# not part of the base; include it from an overlay (overlays/lab-metrics).
+# not part of the base; include it from an overlay (overlays/ha-metrics).
 
 resources:
   - deployment.yaml

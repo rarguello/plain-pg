@@ -6,9 +6,9 @@ kind: Component
 #   - Secret   postgresql-tls     with tls.crt / tls.key
 #   - ConfigMap postgresql-tls-ca with ca.crt (or service-ca.crt)
 # The overlay decides who provides them:
-#   - overlays/lab-tls     lets OpenShift's service-ca issue them (annotation on
+#   - overlays/ha-tls     lets OpenShift's service-ca issue them (annotation on
 #                          postgresql-hl);
-#   - overlays/lab-tls-byo expects you to create them yourself (bring your own
+#   - overlays/ha-tls-byo expects you to create them yourself (bring your own
 #                          certificate).
 # The entrypoint turns TLS on only when the certificate is mounted
 # (ensure_tls_config in the base ConfigMap).

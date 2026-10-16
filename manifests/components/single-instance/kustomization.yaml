@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Optional component: run a SINGLE instance (no replica). It keeps everything
+# that is not about replication and drops what only makes sense with a standby:
+#   - the StatefulSet runs 1 replica;
+#   - no postgresql-ro Service (it pins a replica that does not exist): read
+#     through postgresql-r, which then selects the single instance.
+#
+# Use it WITHOUT components/automatic-failover: there is nothing to promote.
+# There is no HA: a restart, an upgrade or a node failure is downtime, and the
+# dumps on postgresql-backups are the only recovery (docs/operations.md).
+#
+# Going to HA later is one command: `oc scale sts postgresql --replicas=2` (the
+# new pod runs pg_basebackup on its own). `oc apply` does not delete objects the
+# new overlay no longer defines, so remove the leftovers by hand.
+
+patches:
+  - target:
+      kind: StatefulSet
+      name: postgresql
+    patch: |-
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: postgresql
+      spec:
+        replicas: 1
+
+  # A Service with no endpoints is a trap: remove it instead of leaving it
+  # pointing at a pod that is not part of this profile.
+  - target:
+      kind: Service
+      name: postgresql-ro
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: postgresql-ro
+      $patch: delete

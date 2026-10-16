@@ -9,10 +9,10 @@ runs `pg_basebackup` at startup). That is the whole step.
 
 | Overlay | Pods | What you get |
 |---|---:|---|
-| `lab-single` | 1 | one pod, same hardening, `pg_dump` backups |
-| `lab-single-tls` | 1 | the same, serving TLS (certificate from OpenShift's service-ca) |
-| `lab` | 2 | a hot standby, the `postgresql-ro` Service, automatic failover |
-| `lab-manual` | 2 | a hot standby, manual failover only (no CronJob) |
+| `single` | 1 | one pod, same hardening, `pg_dump` backups |
+| `single-tls` | 1 | the same, serving TLS (certificate from OpenShift's service-ca) |
+| `ha` | 2 | a hot standby, the `postgresql-ro` Service, automatic failover |
+| `ha-manual` | 2 | a hot standby, manual failover only (no CronJob) |
 
 The HA profile:
 
@@ -59,7 +59,7 @@ so a replica can find the primary. Each pod keeps its data on its own
 `pgdata-postgresql-N` PVC.
 
 With one replica only `postgresql-0` exists: there is no standby to stream to, no
-`postgresql-ro` (nothing to pin) and nothing to promote, so `lab-single` leaves
+`postgresql-ro` (nothing to pin) and nothing to promote, so `single` leaves
 both out.
 
 ## Why it exists
@@ -116,7 +116,7 @@ oc -n plain-pg create secret generic postgresql-credentials \
   --from-literal=POSTGRESQL_DATABASE=appdb  --from-literal=POSTGRESQL_ADMIN_PASSWORD='<admin-pw>' \
   --from-literal=POSTGRESQL_MASTER_USER=replicator --from-literal=POSTGRESQL_MASTER_PASSWORD='<repl-pw>'
 
-oc apply -k manifests/overlays/lab-single          # one pod
+oc apply -k manifests/overlays/single          # one pod
 oc -n plain-pg get pods                            # wait for 1/1 Ready
 
 oc -n plain-pg scale sts postgresql --replicas=2   # HA: a hot standby joins
@@ -133,9 +133,9 @@ delete what the new overlay no longer defines:
 
 ```bash
 # from the single instance to the full HA profile
-oc apply -k manifests/overlays/lab                 # 2 replicas, -ro, CronJob
+oc apply -k manifests/overlays/ha                 # 2 replicas, -ro, CronJob
 # from HA down to one pod
-oc apply -k manifests/overlays/lab-single
+oc apply -k manifests/overlays/single
 oc -n plain-pg delete svc postgresql-ro cronjob postgresql-failover
 ```
 
@@ -143,10 +143,10 @@ oc -n plain-pg delete svc postgresql-ro cronjob postgresql-failover
 `manifests/base/namespace.yaml`, the `namespace:` field in each overlay, and `NS`
 in the scripts to deploy elsewhere.
 
-Optional add-ons (each an overlay): **metrics** for Prometheus (`lab-metrics`),
-**TLS** with a service-ca certificate (`lab-tls`, `lab-single-tls`) or your own
-(`lab-tls-byo`), and **external access** through a NodePort (`lab-external`).
-`lab-autoscale` adds the read HPA. See [operations.md](docs/operations.md).
+Optional add-ons (each an overlay): **metrics** for Prometheus (`ha-metrics`),
+**TLS** with a service-ca certificate (`ha-tls`, `single-tls`) or your own
+(`ha-tls-byo`), and **external access** through a NodePort (`ha-external`).
+`ha-autoscale` adds the read HPA. See [operations.md](docs/operations.md).
 
 The `scripts/` are for the test suite and day-2 operations, not the install:
 `deploy.sh` re-applies the overlay without reverting a failover;

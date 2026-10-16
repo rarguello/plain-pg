@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 
 # Optional component: adds automatic failover (CronJob + RBAC + script).
-# Included from overlays/lab. The overlay decides whether to set AUTO_FAILOVER=true.
+# Included from overlays/ha. The overlay decides whether to set AUTO_FAILOVER=true.
 
 resources:
   - rbac.yaml

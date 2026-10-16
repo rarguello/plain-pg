@@ -4,7 +4,7 @@
 #
 # Usage:
 #   ./scripts/deploy.sh                                 # lab (automatic failover)
-#   ./scripts/deploy.sh manifests/overlays/lab-manual   # manual failover only
+#   ./scripts/deploy.sh manifests/overlays/ha-manual   # manual failover only
 #
 # A fresh install (no postgresql-role ConfigMap) applies the whole overlay.
 #
@@ -28,7 +28,7 @@ cd "$ROOT_DIR"
 # shellcheck source=lib.sh
 source "$ROOT_DIR/scripts/lib.sh"
 
-OVERLAY="manifests/overlays/lab"
+OVERLAY="manifests/overlays/ha"
 for arg in "$@"; do
   case "$arg" in
     -*) echo "ERROR: unknown option $arg" >&2; exit 2 ;;
@@ -70,7 +70,7 @@ if [ -n "$ROLE_OBJECT" ]; then
   # with MERGE PATCHES that omit the operational fields -- spec.replicas for the
   # StatefulSet, spec.selector for the Services -- so a live failover and a live
   # replica count are preserved while everything else (for example the Service
-  # `type` of overlays/lab-external) still applies. Server-side apply would prune
+  # `type` of overlays/ha-external) still applies. Server-side apply would prune
   # a field as soon as this script had owned it (and the API would re-default
   # spec.replicas to 1).
   python3 - "$TMP" "$STS_PATCH" "$RW_PATCH" "$RO_PATCH" \

@@ -4,7 +4,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib-test.sh"
 
 echo "### t09 idempotency"
 
-OVERLAY="$ROOT_DIR/manifests/overlays/lab"
+OVERLAY="$ROOT_DIR/manifests/overlays/ha"
 if oc -n "$NS" get hpa postgresql-read >/dev/null 2>&1; then
   c_skip "an HPA owns replicas; run this test without the read-scaling component"
   t_summary
