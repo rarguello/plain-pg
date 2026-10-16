@@ -14,6 +14,9 @@ or a scale-up it already points at the right set. `-rw`/`-ro` select by pod name
 and are repointed by the failover scripts; `-ro` pins exactly **one** replica, so
 extra replicas (from the HPA or a manual scale) are reachable only through `-r`.
 
+The single-instance profile (`lab-single`) has no `postgresql-ro`: there is no
+replica to pin. Read through `postgresql-r`, which then selects only the primary.
+
 `postgresql-r` balances **per TCP connection**, not per query: many short
 connections spread over the Ready pods, one long-lived connection stays on one
 instance. Do not send writes to `-r` (they would land on a random instance). Every
