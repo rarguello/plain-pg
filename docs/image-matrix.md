@@ -52,10 +52,10 @@ nothing in the manifests is version- or platform-specific:
 |---|---|---|---|---|---|---|
 | `PLATFORM` | el9 | el9 | el9 | el9 | el10 | el10 |
 | user | 26 | 26 | 26 | 26 | 26 | 26 |
-| entrypoint | `container-entrypoint` + `run-postgresql` (all six) |
-| `APP_DATA` / `HOME` | `/opt/app-root` / `/var/lib/pgsql` (all six) |
-| license | RHEL EULA (all six) |
-| built | 2026-10-14 (all six) |
+
+Identical in all six: entrypoint `container-entrypoint` + `run-postgresql`,
+`APP_DATA=/opt/app-root`, `HOME=/var/lib/pgsql`, the RHEL EULA and a 2026-10-14
+build date.
 
 ## 3. Runtime probe (all six, on the lab)
 
