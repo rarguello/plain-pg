@@ -43,12 +43,13 @@ for p in postgresql-0 postgresql-1; do
   wait_for 120 "pod $p is Ready" pod_ready "$p"
 done
 
-# Image: PostgreSQL 18, pinned by digest
+# Image: Red Hat's PostgreSQL, pinned by digest
 IMG="$(oc -n "$NS" get sts postgresql -o jsonpath='{.spec.template.spec.containers[0].image}')"
 check_contains "the image comes from registry.redhat.io" "registry.redhat.io" "$IMG"
 check_contains "the image is pinned by digest" "@sha256:" "$IMG"
 VER="$(oc -n "$NS" exec postgresql-0 -- postgres --version 2>/dev/null)"
-check_match "the server is PostgreSQL 18.x" "^postgres \(PostgreSQL\) 18\." "$VER"
+check_match "the server is PostgreSQL ${EXPECT_PG:-18}.x" \
+  "^postgres \(PostgreSQL\) ${EXPECT_PG:-18}\." "$VER"
 OSREL="$(oc -n "$NS" exec postgresql-0 -- cat /etc/os-release 2>/dev/null)"
 check_match "the base is Red Hat Enterprise Linux" "Red Hat Enterprise Linux" "$OSREL"
 
