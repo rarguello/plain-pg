@@ -1,8 +1,10 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# "Pure" base: Kubernetes core objects, no namespace, no pinned image.
-# It is always used through an overlay (overlays/ha, overlays/ha-manual).
+# "Pure" base: Kubernetes core objects, no namespace, no image pin. It is always
+# used through an overlay (overlays/ha, overlays/ha-manual, overlays/single...),
+# and every profile includes components/image, which is the one place the
+# PostgreSQL image is pinned.
 
 resources:
   - namespace.yaml

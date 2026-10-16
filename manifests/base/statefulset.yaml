@@ -84,6 +84,8 @@ spec:
 
       containers:
         - name: postgresql
+          # The image digest is pinned in base/kustomization.yaml (the name here
+          # is what the kustomize `images:` transformer matches).
           image: registry.redhat.io/rhel10/postgresql-18:latest
           command:
             - /bin/bash

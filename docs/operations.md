@@ -52,10 +52,13 @@ components:
   - ../../components/metrics
   - ../../components/tls
   - ../../components/tls-service-ca
+  - ../../components/image   # pins the PostgreSQL image; keep it LAST
 ```
 
 Available components: `automatic-failover`, `single-instance`, `metrics`,
-`read-scaling`, `tls`, `tls-service-ca`, `external-access`.
+`read-scaling`, `tls`, `tls-service-ca`, `external-access`, and `image` (the one
+place the PostgreSQL image is pinned; it goes last, because a component's
+transformer only covers the resources accumulated before it).
 
 `plain-pg` is only the example namespace. To deploy elsewhere, change
 `metadata.name` in `manifests/base/namespace.yaml`, the `namespace:` field in each

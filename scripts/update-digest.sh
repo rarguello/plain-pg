@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 #
 # update-digest.sh -- prints the current image digest and (with --apply)
-# replaces it in the overlays.
+# replaces it in the base (the one place the image is pinned; every overlay
+# inherits it). Changing the platform or the PostgreSQL version is a manual edit
+# of that same block: see docs/image-matrix.md.
 #
 # Usage:
 #   ./scripts/update-digest.sh            # only shows the digest
-#   ./scripts/update-digest.sh --apply    # updates the kustomization.yaml
+#   ./scripts/update-digest.sh --apply    # updates manifests/base/kustomization.yaml
 #
 set -euo pipefail
 
@@ -26,7 +28,6 @@ if [ "${1:-}" != "--apply" ]; then
   exit 0
 fi
 
-for f in "$ROOT_DIR"/manifests/overlays/*/kustomization.yaml; do
-  sed -i -E "s#(digest: )sha256:[0-9a-f]{64}#\1${DIGEST}#" "$f"
-  echo "Updated: $f"
-done
+F="$ROOT_DIR/manifests/components/image/kustomization.yaml"
+sed -i -E "s#(digest: )sha256:[0-9a-f]{64}#\1${DIGEST}#" "$F"
+echo "Updated: $F"

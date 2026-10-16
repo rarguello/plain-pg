@@ -5,8 +5,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib-test.sh"
 
 echo "### t18 image and digest"
 
-PIN="$(grep -oE 'sha256:[0-9a-f]{64}' "$ROOT_DIR/manifests/overlays/ha/kustomization.yaml" | head -1)"
-check "the overlay pins a digest" bash -c "[ -n '$PIN' ]"
+PIN="$(grep -oE 'sha256:[0-9a-f]{64}' "$ROOT_DIR/manifests/components/image/kustomization.yaml" | head -1)"
+check "components/image pins a digest" bash -c "[ -n '$PIN' ]"
 
 RUNNING="$(oc -n "$NS" get sts postgresql -o jsonpath='{.spec.template.spec.containers[0].image}')"
 check_contains "the StatefulSet uses the pinned digest" "$PIN" "$RUNNING"

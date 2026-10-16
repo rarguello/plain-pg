@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# The PostgreSQL image, pinned in ONE place for every overlay.
+#
+# It has to be a component (and not the base) because a kustomization applies its
+# `images:` transformer only to the resources it builds itself: the images that
+# components add (the automatic-failover CronJob, the metrics exporter) would keep
+# their floating tag. A component's transformers are applied to the whole build,
+# so every profile includes this one.
+#
+# To move to another platform or PostgreSQL version: change the name and the
+# digest here, wipe the PGDATA PVCs if the major version changes (PostgreSQL
+# refuses to start on a data directory from another major) and recreate the pods.
+# Which combinations exist, and which one the test suite covers, is in
+# docs/image-matrix.md. Update the digest with scripts/update-digest.sh --apply.
+
+images:
+  # Red Hat's PostgreSQL 18 image. It is a RHEL image: Red Hat publishes no UBI
+  # variant (see docs/image-matrix.md).
+  - name: registry.redhat.io/rhel10/postgresql-18
+    digest: sha256:2e04d97c53cd19e9fc855195f0585925fd2a704e42cb158d9c96b57747631882

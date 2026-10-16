@@ -14,6 +14,10 @@ runs `pg_basebackup` at startup). That is the whole step.
 | `ha` | 2 | a hot standby, the `postgresql-ro` Service, automatic failover |
 | `ha-manual` | 2 | a hot standby, manual failover only (no CronJob) |
 
+The PostgreSQL image is pinned in one place, `manifests/components/image/`; moving
+to another platform or version is a one-line change (see
+[docs/image-matrix.md](docs/image-matrix.md)).
+
 The HA profile:
 
 ```mermaid

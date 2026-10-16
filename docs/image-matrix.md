@@ -140,7 +140,23 @@ differences that could bite are operational: the `public` schema change on 15+
   19 (no image yet).
 - **Would not claim:** `rhel9/postgresql-13` for new deployments (EOL upstream).
 
-## 7. How to reproduce
+## 7. Changing the platform or the version
+
+The image is pinned in **one** place, `manifests/components/image/kustomization.yaml`
+(every profile includes it):
+
+1. Edit the `name` and the `digest` there — or run
+   `scripts/update-digest.sh --apply` for a new build of the same image.
+2. If the major version changes, the old data directory is unusable: delete the
+   StatefulSet and the PGDATA PVCs first (PostgreSQL refuses to start on a data
+   directory from another major).
+3. Recreate the pods (`oc delete pod postgresql-0 postgresql-1`).
+
+Two caveats, both from this investigation: `t18_image` asserts `el10` and
+PostgreSQL 18, so the suite fails on any other combination even though the
+deployment works; and nothing in the suite proves a version other than 18.
+
+## 8. How to reproduce
 
 ```bash
 # what exists and what each image declares

@@ -3,14 +3,12 @@ kind: Kustomization
 
 # Minimal HA profile: replication + MANUAL failover only. No CronJob, no RBAC,
 # no automatic failover (AUTO_FAILOVER stays at "false").
+# The PostgreSQL image is pinned in the base.
 
 namespace: plain-pg
 
 resources:
   - ../../base
 
-# Red Hat's PostgreSQL 18 image, pinned by digest for reproducibility. It is a
-# RHEL image: Red Hat publishes no UBI variant (see docs/image-matrix.md).
-images:
-  - name: registry.redhat.io/rhel10/postgresql-18
-    digest: sha256:2e04d97c53cd19e9fc855195f0585925fd2a704e42cb158d9c96b57747631882
+components:
+  - ../../components/image
