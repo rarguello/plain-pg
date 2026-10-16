@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Optional component: provides the TLS certificate through OpenShift's
+# service-ca. It creates the (empty, annotated) ConfigMap the CA bundle lands
+# in and annotates the headless Service so service-ca issues a serving
+# certificate into the Secret postgresql-tls. Nothing is stored in git.
+#
+# Use it together with components/tls, which mounts both objects into the pods.
+# For a certificate you bring yourself, do NOT use this component: create the
+# Secret postgresql-tls and the ConfigMap postgresql-tls-ca by hand and apply
+# only components/tls (see overlays/lab-tls-byo).
+
+resources:
+  - ca-configmap.yaml
+
+patches:
+  # service-ca writes tls.crt/tls.key into the Secret postgresql-tls, and the CA
+  # bundle into the ConfigMap postgresql-tls-ca (key: service-ca.crt).
+  - target:
+      kind: Service
+      name: postgresql-hl
+    patch: |-
+      - op: add
+        path: /metadata/annotations/service.beta.openshift.io~1serving-cert-secret-name
+        value: postgresql-tls

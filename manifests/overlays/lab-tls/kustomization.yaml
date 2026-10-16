@@ -9,18 +9,7 @@ namespace: plain-pg
 
 resources:
   - ../lab
-  - ca-configmap.yaml
 
 components:
   - ../../components/tls
-
-patches:
-  # service-ca writes tls.crt/tls.key into the Secret postgresql-tls, and the CA
-  # bundle into the (empty, annotated) ConfigMap postgresql-tls-ca.
-  - target:
-      kind: Service
-      name: postgresql-hl
-    patch: |-
-      - op: add
-        path: /metadata/annotations/service.beta.openshift.io~1serving-cert-secret-name
-        value: postgresql-tls
+  - ../../components/tls-service-ca

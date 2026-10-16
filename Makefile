@@ -41,8 +41,10 @@ lint:
 	oc kustomize manifests/overlays/lab-tls > $(RENDERED).lab-tls.yaml
 	oc kustomize manifests/overlays/lab-tls-byo > $(RENDERED).lab-tls-byo.yaml
 	oc kustomize manifests/overlays/lab-external > $(RENDERED).lab-external.yaml
+	oc kustomize manifests/overlays/lab-single > $(RENDERED).lab-single.yaml
+	oc kustomize manifests/overlays/lab-single-tls > $(RENDERED).lab-single-tls.yaml
 	python3 tools/check-scripts.py $(RENDERED).lab.yaml $(RENDERED).lab-manual.yaml
-	python3 tools/check-policies.py $(RENDERED).lab.yaml $(RENDERED).lab-manual.yaml $(RENDERED).lab-autoscale.yaml $(RENDERED).lab-metrics.yaml $(RENDERED).lab-tls.yaml $(RENDERED).lab-tls-byo.yaml $(RENDERED).lab-external.yaml
+	python3 tools/check-policies.py $(RENDERED).lab.yaml $(RENDERED).lab-manual.yaml $(RENDERED).lab-autoscale.yaml $(RENDERED).lab-metrics.yaml $(RENDERED).lab-tls.yaml $(RENDERED).lab-tls-byo.yaml $(RENDERED).lab-external.yaml $(RENDERED).lab-single.yaml $(RENDERED).lab-single-tls.yaml
 
 # The same checks CI runs, for the tools that are installed locally.
 ci: lint
