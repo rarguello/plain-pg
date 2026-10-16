@@ -19,5 +19,5 @@ kind: Component
 
 images:
   - name: postgresql
-    newName: registry.redhat.io/rhel10/postgresql-16
-    digest: sha256:9e681cb2f4def81a296d4d826ce13bd29164448cd79876b0d8bb7c38d6fd532a
+    newName: registry.redhat.io/rhel10/postgresql-18
+    digest: sha256:2e04d97c53cd19e9fc855195f0585925fd2a704e42cb158d9c96b57747631882
