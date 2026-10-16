@@ -59,6 +59,12 @@ echo "==> wiping the data"
 oc -n "$NS" delete statefulset postgresql --wait=true >/dev/null 2>&1 || true
 oc -n "$NS" delete pvc pgdata-postgresql-0 pgdata-postgresql-1 --wait=true >/dev/null 2>&1 || true
 
+# A previous run (or a failover test) can leave the lab failovered: the role in
+# the ConfigMap and the -rw/-ro selectors. Applying the overlay resets them, so
+# every run starts from the same state the suite expects.
+echo "==> resetting the role and the Services"
+oc apply -k "$ROOT_DIR/manifests/overlays/ha" >/dev/null 2>&1 || true
+
 echo "==> running the suite (transcript: ${OUT#"$ROOT_DIR"/})"
 set +e
 EXPECT_PLATFORM="$PLATFORM" EXPECT_PG="$PG" "$ROOT_DIR/tests/run-all.sh" > "$OUT" 2>&1
