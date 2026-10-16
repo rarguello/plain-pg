@@ -1,7 +1,7 @@
 ###############################################################################
 # statefulset.yaml
 #
-# PostgreSQL 18 (UBI) StatefulSet with streaming replication.
+# PostgreSQL 18 StatefulSet with streaming replication.
 #
 #   postgresql-0 -> primary (read/write)
 #   postgresql-1 -> replica (hot standby, read-only)

@@ -16,7 +16,7 @@ Last full run against a real cluster: **32/32 tests · 317 checks · 0 failures*
 
 | Test | What it proves | Checks | Result |
 |---|---|---:|---|
-| `t01_deploy` | Installs from scratch and both pods come up on the pinned UBI image | 29 | PASS |
+| `t01_deploy` | Installs from scratch and both pods come up on the pinned image | 29 | PASS |
 | `t02_roles` | Exactly one primary and one hot standby, consistent on disk | 11 | PASS |
 | `t03_replication` | Writes replicate to the standby; the standby is read-only | 7 | PASS |
 | `t04_services` | Each Service routes to the right pods; per-pod DNS resolves | 11 | PASS |
@@ -79,7 +79,7 @@ not every Job the scripts create.
   creates it by hand; see `operations.md`).
 - Without a cluster, `make lint` runs shellcheck, renders the nine overlays, and
   validates the embedded scripts (`tools/check-scripts.py`) and the AGENTS.md hard
-  rules — pinned UBI image, no operators, namespace, auxiliary-pod labels,
+  rules — pinned Red Hat image, no operators, namespace, auxiliary-pod labels,
   PodSecurity — via `tools/check-policies.py`. CI (`.github/workflows/ci.yml`)
   adds kubeconform, yamllint, markdownlint, codespell, lychee, actionlint and
   gitleaks.

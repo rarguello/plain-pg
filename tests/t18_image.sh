@@ -17,8 +17,10 @@ check_contains "the StatefulSet uses the pinned digest" "$PIN" "$RUNNING"
 POD_IMAGE="$(oc -n "$NS" get pod "$(primary_pod)" -o jsonpath='{.status.containerStatuses[0].image}')"
 check_eq "the pod runs exactly that reference" "$RUNNING" "$POD_IMAGE"
 POD_IMAGEID="$(oc -n "$NS" get pod "$(primary_pod)" -o jsonpath='{.status.containerStatuses[0].imageID}')"
+# The repository is read from the pin, so this test works for any image we run.
+IMGNAME="$(grep -oE 'registry\.redhat\.io/[a-z0-9./-]+' "$ROOT_DIR/manifests/components/image/kustomization.yaml" | head -1)"
 check_match "the imageID resolves to the same repository" \
-  "^registry\.redhat\.io/rhel10/postgresql-18@sha256:[0-9a-f]{64}$" "$POD_IMAGEID"
+  "^${IMGNAME//./\\.}@sha256:[0-9a-f]{64}$" "$POD_IMAGEID"
 
 # The pinned digest must be a real, resolvable image. Whether it is still the
 # newest `:latest` is drift, not correctness -- and `:latest` moves, so comparing
@@ -47,10 +49,13 @@ else
   c_skip "skopeo or the authfile are not available; the pin was not resolved"
 fi
 
-# The image is PostgreSQL 18 on UBI10
-check_match "the image declares PLATFORM el10" "el10" \
+# The image is PostgreSQL 18 on RHEL 10 unless the run says otherwise (the
+# matrix runner sets these when it tests another image; see docs/image-matrix.md).
+EXPECT_PLATFORM="${EXPECT_PLATFORM:-el10}"
+EXPECT_PG="${EXPECT_PG:-18}"
+check_match "the image declares PLATFORM $EXPECT_PLATFORM" "$EXPECT_PLATFORM" \
   "$(oc -n "$NS" exec "$(primary_pod)" -- printenv PLATFORM 2>/dev/null)"
-check_match "postgres is 18.x" "^postgres \(PostgreSQL\) 18\." \
+check_match "postgres is $EXPECT_PG.x" "^postgres \(PostgreSQL\) $EXPECT_PG\." \
   "$(oc -n "$NS" exec "$(primary_pod)" -- postgres --version 2>/dev/null)"
 
 t_summary

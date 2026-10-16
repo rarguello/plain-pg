@@ -43,9 +43,9 @@ check "the real password is NOT versioned in git" \
 check "the secrets/ directory is in .gitignore" \
   bash -c "git -C '$ROOT_DIR' check-ignore secrets/postgresql-credentials.env >/dev/null"
 
-# The image is Red Hat UBI
+# The image is a Red Hat image
 IMG="$(oc -n "$NS" get sts postgresql -o jsonpath='{.spec.template.spec.containers[0].image}')"
-check_contains "the image is UBI (registry.redhat.io)" "registry.redhat.io" "$IMG"
+check_contains "the image comes from registry.redhat.io" "registry.redhat.io" "$IMG"
 check "the docker.io/library/postgres image is not used" \
   bash -c "! git -C '$ROOT_DIR' grep -q 'docker.io/library/postgres' -- manifests/"
 

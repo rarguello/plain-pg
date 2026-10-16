@@ -4,9 +4,9 @@
 Usage: check-policies.py <rendered.yaml> [more.yaml ...]
 
 Checks (see AGENTS.md):
-  1. every container image is a UBI image pinned by digest, and nothing uses
+  1. every container image is a Red Hat image pinned by digest, and nothing uses
      docker.io/library/postgres (a documented allowlist covers components that
-     have no UBI image, e.g. the metrics exporter);
+     have no Red Hat image, e.g. the metrics exporter);
   2. no operators: no CRDs and no OLM objects;
   3. the namespace is `plain-pg` (rule 4);
   4. auxiliary pod templates do not carry name/instance=postgresql, so they can
@@ -35,9 +35,10 @@ POD_TEMPLATE_PATHS = {
     "Job": ["spec", "template"],
     "CronJob": ["spec", "jobTemplate", "spec", "template"],
 }
-# Non-UBI images that are allowed because Red Hat does not publish one. They must
-# still be pinned by digest. Keep this list short and documented.
-NON_UBI_ALLOWED = {
+# Images outside registry.redhat.io that are allowed because Red Hat does not
+# publish one. They must still be pinned by digest. Keep this list short and
+# documented.
+NON_RHEL_ALLOWED = {
     "quay.io/prometheuscommunity/postgres-exporter":
         "metrics exporter (components/metrics)",
 }
@@ -96,9 +97,9 @@ def check_doc(doc):
             image = c.get("image", "")
             if "docker.io/library/postgres" in image:
                 fail(f"{where}: docker.io/library/postgres is forbidden (rule 3)")
-            allowed = any(image.startswith(p) for p in NON_UBI_ALLOWED)
+            allowed = any(image.startswith(p) for p in NON_RHEL_ALLOWED)
             if not allowed and IMAGE_RE not in image:
-                fail(f"{where}: image {image!r} is not a UBI image (rule 3)")
+                fail(f"{where}: image {image!r} is not a Red Hat image (rule 3)")
             if "@sha256:" not in image:
                 fail(f"{where}: image {image!r} is not pinned by digest (rule 3)")
             sc = c.get("securityContext", {}) or {}

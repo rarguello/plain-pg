@@ -4,7 +4,7 @@
 # postgres_exporter: PostgreSQL metrics for Prometheus. This is an optional
 # component (components/metrics); it is not part of the base.
 #
-# The exporter image is not a UBI image (Red Hat does not publish one). Like
+# The exporter image is not a Red Hat PostgreSQL image (Red Hat does not publish
 # every other image here it is pinned by digest; tools/check-policies.py keeps a
 # documented allowlist for it.
 #

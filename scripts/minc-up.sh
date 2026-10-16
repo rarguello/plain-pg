@@ -50,7 +50,7 @@ fi
 oc patch storageclass local-path \
   -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' >/dev/null
 
-# 2. Pull secret for registry.redhat.io (the UBI image).
+# 2. Pull secret for registry.redhat.io (the PostgreSQL image).
 echo "==> Wiring the pull secret into namespace $NS"
 oc apply -f "$ROOT_DIR/manifests/base/namespace.yaml"
 if [ -f "$PULL_SECRET" ]; then
@@ -61,7 +61,7 @@ if [ -f "$PULL_SECRET" ]; then
   oc -n "$NS" patch serviceaccount default \
     -p '{"imagePullSecrets":[{"name":"redhat-pull"}]}' >/dev/null
 else
-  echo "WARNING: $PULL_SECRET not found; the UBI image will not pull" >&2
+  echo "WARNING: $PULL_SECRET not found; the PostgreSQL image will not pull" >&2
 fi
 
 echo "==> MINC cluster is ready for the suite (namespace $NS, storageclass local-path)"

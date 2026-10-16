@@ -15,9 +15,10 @@ Details and commands: `README.md`.
 2. **No secrets in git.** Never commit the `postgresql-credentials` Secret or its
    values. A real deploy is given one by hand or by an ExternalSecret; the test
    tooling generates a throwaway one in gitignored `secrets/`.
-3. **The image must be UBI** (`registry.redhat.io/...`), pinned by digest. (The
-   metrics exporter in `components/metrics` is the one documented exception: Red
-   Hat publishes no UBI exporter; see the allowlist in `tools/check-policies.py`.)
+3. **The image must be a Red Hat image** (`registry.redhat.io/rhel...`), pinned
+   by digest. (The metrics exporter in `components/metrics` is the one documented
+   exception: Red Hat publishes no exporter image; see the allowlist in
+   `tools/check-policies.py`.)
 4. **Test namespace: `plain-pg`.** Do not touch other namespaces.
 5. **Do not hardcode a StorageClass** unless it is unavoidable (and document it).
 6. **Everything documented was tested.** No untested procedures.
