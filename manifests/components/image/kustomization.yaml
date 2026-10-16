@@ -1,21 +1,23 @@
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 
-# The PostgreSQL image, pinned in ONE place for every overlay.
+# The PostgreSQL image, in ONE place for every overlay.
 #
-# It has to be a component (and not the base) because a kustomization applies its
-# `images:` transformer only to the resources it builds itself: the images that
-# components add (the automatic-failover CronJob, the metrics exporter) would keep
-# their floating tag. A component's transformers are applied to the whole build,
-# so every profile includes this one.
+# The resources use the logical name `postgresql`; this transformer maps it to the
+# real, pinned image. Two reasons for the indirection:
+#   - a kustomization applies its `images:` transformer only to the resources it
+#     builds itself, so the base cannot pin the images that components add (the
+#     failover CronJob); as a component, included last, this one covers everything;
+#   - moving to another platform or PostgreSQL version is then a single edit:
+#     `newName` and `digest` here (scripts/update-digest.sh --apply updates the
+#     digest of the same image).
 #
-# To move to another platform or PostgreSQL version: change the name and the
-# digest here, wipe the PGDATA PVCs if the major version changes (PostgreSQL
-# refuses to start on a data directory from another major) and recreate the pods.
-# Which combinations exist, and which one the test suite covers, is in
-# docs/image-matrix.md. Update the digest with scripts/update-digest.sh --apply.
+# After a major version change, wipe the PGDATA PVCs (PostgreSQL refuses to start
+# on a data directory from another major) and recreate the pods.
+# scripts/test-image.sh does all of that for one combination and runs the suite;
+# docs/image-matrix.md has the table of what has been tested.
 
 images:
-  # Red Hat's PostgreSQL 18 image, pinned by digest (see docs/image-matrix.md).
-  - name: registry.redhat.io/rhel10/postgresql-18
+  - name: postgresql
+    newName: registry.redhat.io/rhel10/postgresql-18
     digest: sha256:2e04d97c53cd19e9fc855195f0585925fd2a704e42cb158d9c96b57747631882

@@ -12,7 +12,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMG="${IMG:-registry.redhat.io/rhel10/postgresql-18}"
+PIN="$ROOT_DIR/manifests/components/image/kustomization.yaml"
+IMG="${IMG:-$(grep -oE 'newName: registry\.redhat\.io/[a-z0-9./-]+' "$PIN" | sed 's/newName: //')}"
 AUTHFILE="${AUTHFILE:-$HOME/.pull-secret.json}"
 
 if ! command -v skopeo >/dev/null 2>&1; then

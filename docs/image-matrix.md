@@ -27,8 +27,9 @@ It pins that image temporarily (and restores the pin), wipes the PGDATA PVCs —
 another image means another data directory — runs the full suite and leaves the
 transcript in `docs/evidence/`.
 
-To change the image for real, edit `manifests/components/image/kustomization.yaml`
-(`scripts/update-digest.sh --apply` updates the digest of the same image) and
+To change the image for real, edit the pin
+(`manifests/components/image/kustomization.yaml`): `newName` and `digest`
+(`scripts/update-digest.sh --apply` updates the digest of the same image), then
 recreate the pods; wipe the PVCs if the major version changes.
 
 ## Streaming replication across versions

@@ -50,7 +50,8 @@ spec:
               type: RuntimeDefault
           containers:
             - name: failover-controller
-              image: registry.redhat.io/rhel10/postgresql-18:latest
+              # Logical name: components/image maps it to the real, pinned image.
+              image: postgresql
               command: ["/bin/bash", "/scripts/failover-controller.sh"]
               securityContext:
                 allowPrivilegeEscalation: false

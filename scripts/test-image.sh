@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 #
 # test-image.sh -- runs the whole suite against another Red Hat PostgreSQL image
-# and leaves the transcript in docs/evidence/. It pins that image temporarily and
-# restores the pin at the end, so the run is comparable with the default one.
+# and leaves the transcript in docs/evidence/.
 #
 # Usage:
 #   ./scripts/test-image.sh rhel9/postgresql-16 [tag]
 #
 # Destructive: it wipes the PGDATA PVCs (another image means another data
 # directory) and runs the full suite, which includes failover and teardown.
+# It edits the pin (manifests/components/image/kustomization.yaml) and restores
+# it from a backup when it finishes, even if the suite fails.
 #
 set -euo pipefail
 
@@ -19,28 +20,40 @@ source "$ROOT_DIR/scripts/lib.sh"
 REPO="${1:?usage: test-image.sh <repo> [tag]}"
 TAG="${2:-latest}"
 AUTHFILE="${AUTHFILE:-$HOME/.pull-secret.json}"
-PIN_FILE="$ROOT_DIR/manifests/components/image/kustomization.yaml"
+PIN="$ROOT_DIR/manifests/components/image/kustomization.yaml"
+BACKUP="$(mktemp)"
 
 PG="${REPO##*postgresql-}"
 PLATFORM="el${REPO#rhel}"; PLATFORM="${PLATFORM%%/*}"
 OUT="$ROOT_DIR/docs/evidence/$(date +%F)-${REPO//\//-}-full-suite.txt"
 
-restore() { git -C "$ROOT_DIR" checkout -- "manifests/components/image/kustomization.yaml" 2>/dev/null || true; }
+restore() { cp "$BACKUP" "$PIN"; rm -f "$BACKUP"; }
 trap restore EXIT
+cp "$PIN" "$BACKUP"
 
 echo "==> $REPO:$TAG  (PostgreSQL $PG, $PLATFORM)"
 DIGEST="$(skopeo inspect --authfile "$AUTHFILE" "docker://registry.redhat.io/$REPO:$TAG" | jq -r '.Digest')"
 echo "==> digest $DIGEST"
 
 echo "==> pinning it temporarily"
-python3 - "$PIN_FILE" "$REPO" "$DIGEST" <<'PY'
+python3 - "$PIN" "$REPO" "$DIGEST" <<'PY'
 import re, sys
-path, repo, digest = sys.argv[1], sys.argv[2], sys.argv[3]
+path, repo, digest = sys.argv[1:4]
 s = open(path).read()
-s = re.sub(r'name: registry\.redhat\.io/\S+', 'name: registry.redhat.io/' + repo, s)
+s = re.sub(r'newName: registry\.redhat\.io/\S+', 'newName: registry.redhat.io/' + repo, s)
 s = re.sub(r'digest: sha256:[0-9a-f]{64}', 'digest: ' + digest, s)
 open(path, 'w').write(s)
 PY
+
+# The render must really carry the image: changing the pin without the render
+# following it is exactly the mistake this check exists for.
+WANT="registry.redhat.io/$REPO@$DIGEST"
+GOT="$(oc kustomize "$ROOT_DIR/manifests/overlays/ha" | grep -oE 'image: registry\.redhat\.io/[^ ]+' | head -1 | sed 's/image: //')"
+if [ "$GOT" != "$WANT" ]; then
+  echo "ERROR: the render has '$GOT', expected '$WANT'" >&2
+  exit 1
+fi
+echo "==> the render uses $GOT"
 
 echo "==> wiping the data"
 oc -n "$NS" delete statefulset postgresql --wait=true >/dev/null 2>&1 || true

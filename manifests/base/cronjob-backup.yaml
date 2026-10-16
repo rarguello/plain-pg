@@ -44,7 +44,8 @@ spec:
           automountServiceAccountToken: false
           containers:
             - name: backup
-              image: registry.redhat.io/rhel10/postgresql-18:latest
+              # Logical name: components/image maps it to the real, pinned image.
+              image: postgresql
               command: ["/bin/bash", "/scripts/backup.sh"]
               securityContext:
                 allowPrivilegeEscalation: false
