@@ -4,8 +4,8 @@ Guidance for any agent (OpenCode, Codex) or person working in this repo.
 
 ## What this is
 
-PostgreSQL streaming replication on OpenShift with plain Kubernetes objects:
-1 primary (`postgresql-0`) + 1 hot standby, an optional automatic-failover
+PostgreSQL on OpenShift with plain Kubernetes objects: one pod, or a primary plus
+a hot standby for HA (scale the StatefulSet to 2), an optional automatic-failover
 CronJob, `pg_dump` backups, an optional read HPA, and a test suite in `tests/`.
 Details and commands: `README.md`.
 

@@ -24,8 +24,48 @@ For manual failover only (no failover CronJob), apply
 `plain-pg` is only the example namespace. To deploy elsewhere, change
 `metadata.name` in `manifests/base/namespace.yaml`, the `namespace:` field in each
 overlay (`lab`, `lab-manual`, `lab-autoscale`, `lab-metrics`, `lab-tls`,
-`lab-tls-byo`, `lab-external`), and `NS` in `scripts/lib.sh`; the commands in this
-document then need the same namespace.
+`lab-tls-byo`, `lab-external`, `lab-single`, `lab-single-tls`), and `NS` in
+`scripts/lib.sh`; the commands in this document then need the same namespace.
+
+## Single instance (no replica)
+
+`overlays/lab-single` is the same deployment with **one pod**: the same image
+pinned by digest, non-root, probes, resources, NetworkPolicy, per-pod PVC and
+`pg_dump` backups. It leaves out what only makes sense with a standby: the
+automatic-failover CronJob (there is nothing to promote) and the `postgresql-ro`
+Service (it pins a replica that does not exist; read through `postgresql-r`,
+which selects the single instance).
+
+```bash
+oc apply -k manifests/overlays/lab-single
+oc -n plain-pg get pods                      # 1/1 Ready
+```
+
+**Going to HA is one command.** Scaling the StatefulSet up starts the new pod as
+a hot standby by itself: it reads `PRIMARY_POD`, sees that it is not the primary,
+and runs `pg_basebackup`.
+
+```bash
+oc -n plain-pg scale sts postgresql --replicas=2
+```
+
+Scaling back down removes the highest ordinal; the primary keeps running and its
+data. What the scale alone does **not** give you is the `postgresql-ro` Service
+and the failover CronJob — apply `manifests/overlays/lab` for those (it also sets
+`AUTO_FAILOVER=true`).
+
+`oc apply` does not delete objects that the new overlay no longer defines, so
+switching from HA down to the single profile needs the leftovers removed by hand:
+
+```bash
+oc apply -k manifests/overlays/lab-single
+oc -n plain-pg delete svc postgresql-ro cronjob postgresql-failover
+```
+
+With one pod there is **no HA**: a restart, an upgrade or a node failure is
+downtime, and the dumps on `postgresql-backups` are the only recovery (see
+[Recovery](#recovery)). `t31` runs this profile and the step to HA; TLS is
+available here too, with `overlays/lab-single-tls` (see [TLS](#tls), and `t32`).
 
 ## Credentials
 
@@ -91,14 +131,15 @@ oc -n plain-pg patch deploy postgresql-metrics --type merge -p \
 ## TLS
 
 `components/tls` mounts a certificate into the pods; the entrypoint turns TLS on
-only when it is there (`ssl=on`, plus the CA for verification). Two overlays
+only when it is there (`ssl=on`, plus the CA for verification). Two components
 provide the certificate:
 
-- **`lab-tls`** — OpenShift's **service-ca** issues it for `postgresql-hl` into
-  the Secret `postgresql-tls` and injects the CA into `postgresql-tls-ca`.
-  Nothing is stored in git.
-- **`lab-tls-byo`** — **your own certificate**: create the two objects, apply the
-  overlay and recreate the pods:
+- **`components/tls-service-ca`** — OpenShift's **service-ca** issues it for
+  `postgresql-hl` into the Secret `postgresql-tls` and injects the CA into
+  `postgresql-tls-ca`. Nothing is stored in git. Used by `lab-tls` (HA) and
+  `lab-single-tls` (one pod).
+- **`overlays/lab-tls-byo`** — **your own certificate**: create the two objects,
+  apply the overlay and recreate the pods:
 
 ```bash
 oc -n plain-pg create secret tls postgresql-tls --cert=tls.crt --key=tls.key

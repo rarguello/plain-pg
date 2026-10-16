@@ -1,9 +1,20 @@
 # plain-pg
 
-PostgreSQL streaming replication on OpenShift with plain Kubernetes objects: no
-operator, no CRDs, no console. A two-pod StatefulSet where the `postgresql-role`
-ConfigMap decides which pod is primary, so a failover is changing a value and
-recreating pods.
+PostgreSQL on OpenShift with plain objects: no operator, no CRDs, no console. One
+StatefulSet and a ConfigMap that says which pod is primary.
+
+**With or without HA.** Start with a single instance; when you want a hot
+standby, scale the StatefulSet to 2 replicas and the new pod joins on its own (it
+runs `pg_basebackup` at startup). That is the whole step.
+
+| Overlay | Pods | What you get |
+|---|---:|---|
+| `lab-single` | 1 | one pod, same hardening, `pg_dump` backups |
+| `lab-single-tls` | 1 | the same, serving TLS (certificate from OpenShift's service-ca) |
+| `lab` | 2 | a hot standby, the `postgresql-ro` Service, automatic failover |
+| `lab-manual` | 2 | a hot standby, manual failover only (no CronJob) |
+
+The HA profile:
 
 ```mermaid
 flowchart TB
@@ -47,6 +58,10 @@ Replication is WAL streaming, and `postgresql-hl` gives each pod a stable DNS na
 so a replica can find the primary. Each pod keeps its data on its own
 `pgdata-postgresql-N` PVC.
 
+With one replica only `postgresql-0` exists: there is no standby to stream to, no
+`postgresql-ro` (nothing to pin) and nothing to promote, so `lab-single` leaves
+both out.
+
 ## Why it exists
 
 One PostgreSQL server is a single point of failure and one server's worth of
@@ -58,12 +73,13 @@ repoint clients. Those steps are the work:
 | Approach | Still on you |
 |---|---|
 | PostgreSQL on two hosts | build the standby, promote on failure, re-seed the old primary when it returns, repoint clients |
-| PostgreSQL on Kubernetes | pods restart and reschedule, but it does not configure replication, pick the primary, or repoint the Services |
+| The image in a plain StatefulSet | pods restart and reschedule, but nothing configures replication, picks the primary, or repoints the Services |
 | An HA stack (CloudNativePG, Patroni, ...) | more automation, and another system to run |
 
 This repo does those steps with PostgreSQL's own replication and plain objects: a
 ConfigMap holds the role, the entrypoint configures each pod for it, reads scale
-through `postgresql-r`, and failover is a script.
+through `postgresql-r`, and failover is a script. The same objects, with one
+replica, are the single-instance profile.
 
 ## How the primary is chosen
 
@@ -87,8 +103,8 @@ with the wrong role re-seeds or promotes itself on startup.
 
 ## Quick start
 
-Create the namespace and the credentials Secret (never in git), then apply the
-overlay. The primary runs `initdb` and the replica runs `pg_basebackup` on
+Create the namespace and the credentials Secret (never in git), then apply a
+profile. The primary runs `initdb`; every other pod runs `pg_basebackup` on
 startup.
 
 ```bash
@@ -99,13 +115,12 @@ oc -n plain-pg create secret generic postgresql-credentials \
   --from-literal=POSTGRESQL_USER=app        --from-literal=POSTGRESQL_PASSWORD='<app-pw>' \
   --from-literal=POSTGRESQL_DATABASE=appdb  --from-literal=POSTGRESQL_ADMIN_PASSWORD='<admin-pw>' \
   --from-literal=POSTGRESQL_MASTER_USER=replicator --from-literal=POSTGRESQL_MASTER_PASSWORD='<repl-pw>'
-oc apply -k manifests/overlays/lab
 
-oc -n plain-pg get pods          # wait for 2/2 Ready
+oc apply -k manifests/overlays/lab-single          # one pod
+oc -n plain-pg get pods                            # wait for 1/1 Ready
+
+oc -n plain-pg scale sts postgresql --replicas=2   # HA: a hot standby joins
 ```
-
-Manual failover only (no failover CronJob): apply `manifests/overlays/lab-manual`
-instead.
 
 `oc apply -k` is for a fresh install. Re-applying it after a failover or an HPA
 scale resets `PRIMARY_POD`, the `-rw`/`-ro` selectors and `spec.replicas`; on a
@@ -113,14 +128,25 @@ live cluster use `scripts/deploy.sh`, which preserves the live role, the Service
 selectors and the replica count while applying everything else, or patch the
 object directly.
 
+Changing profile on a live cluster is two commands, because `oc apply` does not
+delete what the new overlay no longer defines:
+
+```bash
+# from the single instance to the full HA profile
+oc apply -k manifests/overlays/lab                 # 2 replicas, -ro, CronJob
+# from HA down to one pod
+oc apply -k manifests/overlays/lab-single
+oc -n plain-pg delete svc postgresql-ro cronjob postgresql-failover
+```
+
 `plain-pg` is only the example namespace: change `metadata.name` in
 `manifests/base/namespace.yaml`, the `namespace:` field in each overlay, and `NS`
 in the scripts to deploy elsewhere.
 
 Optional add-ons (each an overlay): **metrics** for Prometheus (`lab-metrics`),
-**TLS** with a service-ca certificate (`lab-tls`) or your own (`lab-tls-byo`), and
-**external access** through a NodePort (`lab-external`). `lab-autoscale` adds the
-read HPA. See [operations.md](docs/operations.md).
+**TLS** with a service-ca certificate (`lab-tls`, `lab-single-tls`) or your own
+(`lab-tls-byo`), and **external access** through a NodePort (`lab-external`).
+`lab-autoscale` adds the read HPA. See [operations.md](docs/operations.md).
 
 The `scripts/` are for the test suite and day-2 operations, not the install:
 `deploy.sh` re-applies the overlay without reverting a failover;
@@ -138,13 +164,15 @@ Known limitations:
 | Replication is asynchronous | a failover can lose the last unreplicated transactions |
 | Backups are logical (`pg_dump`), no WAL archiving | no point-in-time recovery; the copies live in the cluster |
 | No operator, no consensus | failover is manual or a best-effort CronJob, not automatic HA |
+| The single-instance profile | a restart, an upgrade or a node failure is downtime |
 
 ## Tests
 
-The suite runs against a real cluster, no mocks: **30 tests, 287 checks, 0
-failures** covering deploy, replication, manual and automatic failover,
-persistence, backups, disaster recovery, scaling, the HPA, metrics, TLS and
-external access. See [docs/tests.md](docs/tests.md).
+The suite runs against a real cluster, no mocks: **32 tests, 317 checks, 0
+failures** covering deploy, the single-instance profile and the step to HA,
+replication, manual and automatic failover, persistence, backups, disaster
+recovery, scaling, the HPA, metrics, TLS and external access. See
+[docs/tests.md](docs/tests.md).
 
 CI runs it too: on every push it lints, validates the manifests (Kubernetes
 schema + the AGENTS.md rules) and scans for secrets; **every night it creates a
@@ -153,7 +181,7 @@ against it, uploading the transcript.
 
 ## Documentation
 
-- [docs/operations.md](docs/operations.md) — deploy, verify, connect, metrics, restart, re-seed
+- [docs/operations.md](docs/operations.md) — deploy, the single-instance profile, verify, connect, metrics, TLS
 - [docs/failover.md](docs/failover.md) — manual and automatic failover, limits
 - [docs/backups.md](docs/backups.md) — backups and restore
 - [docs/scaling.md](docs/scaling.md) — reads and the HPA
@@ -164,7 +192,7 @@ against it, uploading the transcript.
 
 ```
 manifests/  base + components + overlays      scripts/  deploy, failover, backup, restore, ...
-tests/      suite t01..t30 + runner           tools/    static validation of embedded scripts
+tests/      suite t01..t32 + runner           tools/    static validation of embedded scripts
 ```
 
 MIT. See [LICENSE](LICENSE).

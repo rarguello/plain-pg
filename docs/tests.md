@@ -11,7 +11,7 @@ The suite runs against a real cluster; there are no mocks. Each test prints
 
 ## Coverage
 
-Last full run against a real cluster: **30/30 tests · 287 checks · 0 failures**
+Last full run against a real cluster: **32/32 tests · 317 checks · 0 failures**
 (transcript in [Evidence](#evidence)).
 
 | Test | What it proves | Checks | Result |
@@ -46,14 +46,18 @@ Last full run against a real cluster: **30/30 tests · 287 checks · 0 failures*
 | `t28_external` | A NodePort on `-rw` reaches the primary, and the policy still blocks outsiders | 8 | PASS |
 | `t29_failover_guard` | A declared candidate does not promote while `FAILOVER_GUARD` is set | 7 | PASS |
 | `t30_dr_drill` | With both PGDATA PVCs lost, the cluster is rebuilt and the dump is loaded back | 10 | PASS |
+| `t31_single` | The single-instance profile, and scaling to 2 replicas to get a hot standby | 18 | PASS |
+| `t32_single_tls` | The single instance serving TLS (service-ca), plaintext refused | 12 | PASS |
 
 Destructive tests (`t07`, `t08`, `t11`, `t13`, `t15`, `t16`, `t17`, `t23`, `t24`,
-`t26`, `t27`, `t28`, `t29`, `t30`) change the cluster but leave it consistent. `t11` deletes the
+`t26`, `t27`, `t28`, `t29`, `t30`, `t31`, `t32`) change the cluster but leave it
+consistent. `t11` deletes the
 PVCs and redeploys from scratch; `t24` deletes the StatefulSet and checks that
 `deploy.sh` recreates it with the right replica count; `t26`/`t27` mount a TLS
 certificate and recreate the pods; `t28` makes `postgresql-rw` a NodePort and
 restores it; `t29` declares a candidate with the guard set and restarts it; `t30`
-deletes the StatefulSet and both PGDATA PVCs and rebuilds from a dump.
+deletes the StatefulSet and both PGDATA PVCs and rebuilds from a dump; `t31` and
+`t32` switch to the single-instance profile (with and without TLS) and back.
 `t23` waits for real HPA decisions and only runs from a fresh two-pod
 lab with `postgresql-0` as primary and no HPA; `t25` needs the
 `monitoring.coreos.com` CRDs and `t26` the service-ca controller, and both
@@ -73,7 +77,7 @@ not every Job the scripts create.
   exists, Python with PyYAML, and it generates a throwaway
   `postgresql-credentials` Secret from gitignored `secrets/` (a real deploy
   creates it by hand; see `operations.md`).
-- Without a cluster, `make lint` runs shellcheck, renders the seven overlays, and
+- Without a cluster, `make lint` runs shellcheck, renders the nine overlays, and
   validates the embedded scripts (`tools/check-scripts.py`) and the AGENTS.md hard
   rules — pinned UBI image, no operators, namespace, auxiliary-pod labels,
   PodSecurity — via `tools/check-policies.py`. CI (`.github/workflows/ci.yml`)
