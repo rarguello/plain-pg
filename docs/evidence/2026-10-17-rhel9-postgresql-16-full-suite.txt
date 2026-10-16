@@ -1,0 +1,93 @@
+== ensuring the lab is deployed (scripts/deploy.sh)
+
+═══════════════════════════════════════════════════════════════════════════
+== t01_deploy.sh
+═══════════════════════════════════════════════════════════════════════════
+### t01 deployment: objects, PVCs, pods, pinned image
+  [PASS] namespace plain-pg exists
+  [PASS] Secret postgresql-credentials exists
+  [PASS] the Secret has the key POSTGRESQL_USER
+  [PASS] the Secret has the key POSTGRESQL_PASSWORD
+  [PASS] the Secret has the key POSTGRESQL_DATABASE
+  [PASS] the Secret has the key POSTGRESQL_ADMIN_PASSWORD
+  [PASS] the Secret has the key POSTGRESQL_MASTER_USER
+  [PASS] the Secret has the key POSTGRESQL_MASTER_PASSWORD
+  [PASS] ConfigMap postgresql-scripts exists
+  [PASS] ConfigMap postgresql-role exists
+  [PASS] Service postgresql-hl exists
+  [PASS] Service postgresql-rw exists
+  [PASS] Service postgresql-ro exists
+  [PASS] StatefulSet postgresql exists
+  [PASS] NetworkPolicy postgresql-ingress exists
+  [PASS] CronJob postgresql-failover exists
+  [PASS] replicas=2
+  [PASS] serviceName=postgresql-hl
+  [PASS] podManagementPolicy=Parallel
+  [PASS] updateStrategy=OnDelete
+  [PASS] PVC pgdata-postgresql-0 is Bound
+  [PASS] PVC pgdata-postgresql-1 is Bound
+  [PASS] the PVCs use the default StorageClass
+  [PASS] pod postgresql-0 is Ready
+  [PASS] pod postgresql-1 is Ready
+  [FAIL] the image comes from registry.redhat.io (does not contain 'registry.redhat.io/rhel10/postgresql-18')
+  [PASS] the image is pinned by digest
+  [FAIL] the server is PostgreSQL 18.x (does not match /^postgres \(PostgreSQL\) 18\./: 'postgres (PostgreSQL) 16.15')
+  [PASS] the base is Red Hat Enterprise Linux
+
+  ---- summary: PASS=27 FAIL=2 SKIP=0
+  ---- failures:
+        - the image comes from registry.redhat.io (does not contain 'registry.redhat.io/rhel10/postgresql-18')
+        - the server is PostgreSQL 18.x (does not match /^postgres \(PostgreSQL\) 18\./: 'postgres (PostgreSQL) 16.15')
+
+═══════════════════════════════════════════════════════════════════════════
+== t02_roles.sh
+═══════════════════════════════════════════════════════════════════════════
+### t02 pod roles
+  [PASS] the ConfigMap declares postgresql-0 as primary
+  [PASS] the primary is not in recovery
+  [PASS] the replica is in recovery
+  [PASS] the primary does NOT have standby.signal
+  [PASS] the primary does NOT have recovery.signal
+  [PASS] the replica DOES have standby.signal
+  [PASS] the replica does NOT have recovery.signal
+  [PASS] primary_conninfo points at postgresql-0
+  [PASS] primary_conninfo uses the replication user
+  [PASS] the primary sees 1 replica streaming
+  [PASS] replica application_name
+
+  ---- summary: PASS=11 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t03_replication.sh
+═══════════════════════════════════════════════════════════════════════════
+### t03 streaming replication
+  [PASS] the replica is in 'streaming' state
+  [PASS] sync_state is async or sync
+  [PASS] the replay lag is 0 bytes
+  [PASS] row 'repl-1792190232-1479' appears on the replica
+  [PASS] row 'repl-1792190232-1479' is on the primary
+  [PASS] the replica REJECTS writes (read-only)
+  [PASS] the replica can read the replicated table
+
+  ---- summary: PASS=7 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t04_services.sh
+═══════════════════════════════════════════════════════════════════════════
+### t04 services and DNS
+  [PASS] postgresql-rw points only at the primary
+  [PASS] postgresql-ro points only at the replica
+  [PASS] postgresql-r includes every Ready DB pod
+  [PASS] postgresql-hl has exactly the 2 DB pods
+  [PASS] postgresql-hl does NOT include failover CronJob pods
+  [PASS] connecting through postgresql-rw gives a primary
+  [PASS] connecting through postgresql-ro gives a standby
+  [PASS] connecting through postgresql-r works
+  [PASS] postgresql-r distributes connections across more than one instance
+  [FAIL] headless per-pod DNS resolves and connects (primary) (expected='1' got='')
+  [FAIL] headless per-pod DNS resolves and connects (replica) (expected='1' got='')
+
+  ---- summary: PASS=9 FAIL=2 SKIP=0
+  ---- failures:
+        - headless per-pod DNS resolves and connects (primary) (expected='1' got='')
+        - headless per-pod DNS resolves and connects (replica) (expected='1' got='')

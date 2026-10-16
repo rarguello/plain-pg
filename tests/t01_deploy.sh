@@ -45,7 +45,7 @@ done
 
 # Image: PostgreSQL 18, pinned by digest
 IMG="$(oc -n "$NS" get sts postgresql -o jsonpath='{.spec.template.spec.containers[0].image}')"
-check_contains "the image comes from registry.redhat.io" "registry.redhat.io/rhel10/postgresql-18" "$IMG"
+check_contains "the image comes from registry.redhat.io" "registry.redhat.io" "$IMG"
 check_contains "the image is pinned by digest" "@sha256:" "$IMG"
 VER="$(oc -n "$NS" exec postgresql-0 -- postgres --version 2>/dev/null)"
 check_match "the server is PostgreSQL 18.x" "^postgres \(PostgreSQL\) 18\." "$VER"

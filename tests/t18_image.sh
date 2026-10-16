@@ -7,18 +7,18 @@ echo "### t18 image and digest"
 
 PIN="$(grep -oE 'sha256:[0-9a-f]{64}' "$ROOT_DIR/manifests/components/image/kustomization.yaml" | head -1)"
 check "components/image pins a digest" bash -c "[ -n '$PIN' ]"
+# The repository is read from the pin, so this test works for any image we run.
+IMGNAME="$(grep -oE 'registry\.redhat\.io/[a-z0-9./-]+' "$ROOT_DIR/manifests/components/image/kustomization.yaml" | head -1)"
 
 RUNNING="$(oc -n "$NS" get sts postgresql -o jsonpath='{.spec.template.spec.containers[0].image}')"
 check_contains "the StatefulSet uses the pinned digest" "$PIN" "$RUNNING"
 
-# Note: .status.image is the pinned reference (manifest-list digest, multi-arch);
-# .status.imageID is the platform image digest (amd64), which is different. That
-# is why the reference is compared, not the imageID.
-POD_IMAGE="$(oc -n "$NS" get pod "$(primary_pod)" -o jsonpath='{.status.containerStatuses[0].image}')"
+# The pod's SPEC is what it runs. `.status.image` is what the kubelet pulled and
+# it can name another reference for the same manifest (the node may have the tag
+# cached), so it is not the thing to compare.
+POD_IMAGE="$(oc -n "$NS" get pod "$(primary_pod)" -o jsonpath='{.spec.containers[0].image}')"
 check_eq "the pod runs exactly that reference" "$RUNNING" "$POD_IMAGE"
 POD_IMAGEID="$(oc -n "$NS" get pod "$(primary_pod)" -o jsonpath='{.status.containerStatuses[0].imageID}')"
-# The repository is read from the pin, so this test works for any image we run.
-IMGNAME="$(grep -oE 'registry\.redhat\.io/[a-z0-9./-]+' "$ROOT_DIR/manifests/components/image/kustomization.yaml" | head -1)"
 check_match "the imageID resolves to the same repository" \
   "^${IMGNAME//./\\.}@sha256:[0-9a-f]{64}$" "$POD_IMAGEID"
 
@@ -33,7 +33,7 @@ if command -v skopeo >/dev/null 2>&1 && [ -f "$AUTHFILE" ]; then
   SK_OUT=""; sk_ok=0
   for i in 1 2 3; do
     SK_OUT="$(skopeo inspect --authfile "$AUTHFILE" \
-      "docker://registry.redhat.io/rhel10/postgresql-18@$PIN" 2>&1 || true)"
+      "docker://$IMGNAME@$PIN" 2>&1 || true)"
     if grep -q -- "\"Digest\": \"$PIN\"" <<< "$SK_OUT"; then sk_ok=1; break; fi
     sleep $((i * 5))
   done

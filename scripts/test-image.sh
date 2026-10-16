@@ -27,7 +27,7 @@ PG="${REPO##*postgresql-}"
 PLATFORM="el${REPO#rhel}"; PLATFORM="${PLATFORM%%/*}"
 OUT="$ROOT_DIR/docs/evidence/$(date +%F)-${REPO//\//-}-full-suite.txt"
 
-restore() { cp "$BACKUP" "$PIN"; rm -f "$BACKUP"; }
+restore() { [ -f "$BACKUP" ] && cp "$BACKUP" "$PIN"; rm -f "$BACKUP"; }
 trap restore EXIT
 cp "$PIN" "$BACKUP"
 
