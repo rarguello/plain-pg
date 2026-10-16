@@ -17,5 +17,5 @@ kind: Component
 
 images:
   # Red Hat's PostgreSQL 18 image, pinned by digest (see docs/image-matrix.md).
-  - name: registry.redhat.io/rhel9/postgresql-18
-    digest: sha256:35061f6efbbaa860a5eb67175db5b7d85241621814fe333353823a7a87d4af35
+  - name: registry.redhat.io/rhel10/postgresql-18
+    digest: sha256:2e04d97c53cd19e9fc855195f0585925fd2a704e42cb158d9c96b57747631882
