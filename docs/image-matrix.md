@@ -8,7 +8,7 @@ not supported.
 | Image | PostgreSQL | Suite | Transcript |
 |---|---|---:|---|
 | `rhel10/postgresql-18` | 18 | 32/32 | [2026-10-16](evidence/2026-10-16-full-suite.txt) |
-| `rhel9/postgresql-18` | 18 | pending | — |
+| `rhel9/postgresql-18` | 18 | 32/32 | [2026-10-17](evidence/2026-10-17-rhel9-postgresql-18-full-suite.txt) |
 | `rhel9/postgresql-16` | 16 | pending | — |
 | `rhel10/postgresql-16` | 16 | pending | — |
 | `rhel9/postgresql-15` | 15 | pending | — |
