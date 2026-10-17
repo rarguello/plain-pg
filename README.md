@@ -180,7 +180,7 @@ The suite runs against a real cluster: **33 tests, 333 checks**, covering deploy
 the single-instance profile and the step to HA, replication, manual and automatic
 failover, persistence, backups, disaster recovery, scaling, the HPA, metrics, TLS
 and external access. The last full run: 32/32, 0 failures
-([transcript](docs/evidence/2026-10-16-full-suite.txt)).
+([transcript](docs/evidence/2026-10-17-full-suite.txt)).
 
 CI lints and validates the manifests on every push. A nightly job creates a
 throwaway MicroShift cluster inside the runner and runs the non-destructive

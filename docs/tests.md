@@ -118,7 +118,7 @@ reads the pull secret from the `RH_PULL_SECRET` repository secret.
 ## Evidence
 
 Raw output of full-suite runs, one file per run: the transcript of the supported
-image is [`evidence/2026-10-16-full-suite.txt`](evidence/2026-10-16-full-suite.txt),
+image is [`evidence/2026-10-17-full-suite.txt`](evidence/2026-10-17-full-suite.txt),
 and the other four images have their own, listed in
 [supported-images.md](supported-images.md). The per-test check counts are in each
 transcript; the summary at the end is authoritative. It is historical output:
