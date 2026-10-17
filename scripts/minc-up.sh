@@ -22,7 +22,6 @@
 #   NAMESPACE    target namespace (default: plain-pg)
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NS="${NAMESPACE:-plain-pg}"
 PULL_SECRET="${PULL_SECRET:-$HOME/.pull-secret.json}"
 LOCAL_PATH_VERSION="v0.0.30"
@@ -52,7 +51,12 @@ oc patch storageclass local-path \
 
 # 2. Pull secret for registry.redhat.io (the PostgreSQL image).
 echo "==> Wiring the pull secret into namespace $NS"
-oc apply -f "$ROOT_DIR/manifests/base/namespace.yaml"
+oc create namespace "$NS" --dry-run=client -o yaml | oc apply -f - >/dev/null
+oc label namespace "$NS" \
+  app.kubernetes.io/part-of=plain-pg \
+  pod-security.kubernetes.io/enforce=restricted \
+  pod-security.kubernetes.io/audit=restricted \
+  pod-security.kubernetes.io/warn=restricted --overwrite >/dev/null
 if [ -f "$PULL_SECRET" ]; then
   oc -n "$NS" create secret generic redhat-pull \
     --from-file=.dockerconfigjson="$PULL_SECRET" \

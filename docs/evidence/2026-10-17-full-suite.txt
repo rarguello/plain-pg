@@ -293,3 +293,112 @@ Verify with: ./scripts/verify-replication.sh
 ═══════════════════════════════════════════════════════════════════════════
 ### t13 replica scaling
   (scaling to 3 pods)
+  [PASS] postgresql-2 becomes Ready
+  [PASS] postgresql-2 is standby
+  [PASS] the primary sees 2 replicas streaming
+  [PASS] postgresql-2 received the existing data
+  [PASS] postgresql-r includes the new replica automatically
+  [PASS] postgresql-rw is still on the primary
+  (scaling back to 2 pods)
+  [PASS] postgresql-2 is deleted
+  [PASS] the postgresql-2 PVC is left orphaned (expected behavior)
+  [PASS] 1 replica remains streaming
+
+  ---- summary: PASS=9 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t14_integrity.sh
+═══════════════════════════════════════════════════════════════════════════
+### t14 integrity under load
+  (inserting 5000 rows on the primary)
+  [PASS] the replica reaches 5000 rows
+  [PASS] the data checksum matches on primary and replica
+  [PASS] the lag returns to 0 after the load
+  [PASS] the write after the load replicates
+
+  ---- summary: PASS=4 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t15_reseed.sh
+═══════════════════════════════════════════════════════════════════════════
+### t15 replica re-seed
+  [PASS] data reaches the replica before re-seeding
+  (re-seeding postgresql-1)
+  [PASS] postgresql-1 becomes Ready again
+  [PASS] the replica PVC was recreated (different UID)
+  [PASS] postgresql-1 is standby after the re-seed
+  [PASS] data is still on the re-seeded replica
+  [PASS] the re-seed was recorded in the logs
+  [PASS] replication is re-established
+
+  ---- summary: PASS=7 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t16_failover_load.sh
+═══════════════════════════════════════════════════════════════════════════
+### t16 failover under load
+  rows confirmed before the failover: 100
+  (failover with the writer active)
+  [PASS] postgresql-1 is primary
+  [PASS] the 100 previous records survived
+  (waiting for the writer)
+  confirmed before the failover: 23 | after: 213 | lost: 0
+  [PASS] what is lost is a contiguous suffix (no scattered divergence)
+  [PASS] not all data confirmed before the failover was lost
+  [PASS] exactly one pod is primary at the end
+  [PASS] the database can be written to after the failover
+  (failback)
+  [PASS] postgresql-0 is primary again
+  [PASS] postgresql-1 is standby again
+  [PASS] postgresql-1 is standby again
+
+  ---- summary: PASS=9 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t17_auto_off.sh
+═══════════════════════════════════════════════════════════════════════════
+### t17 AUTO_FAILOVER=false does not trigger failover
+  (waiting 100s: the controller must NOT promote anything)
+  [PASS] the role did NOT change with AUTO_FAILOVER=false
+  [PASS] the controller logs that auto-failover is disabled
+  [PASS] AUTO_FAILOVER is true again
+  [PASS] the primary is still postgresql-0
+
+  ---- summary: PASS=4 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t18_image.sh
+═══════════════════════════════════════════════════════════════════════════
+### t18 image and digest
+  [PASS] components/image pins a digest
+  [PASS] the StatefulSet uses the pinned digest
+  [PASS] the pod runs exactly that reference
+  [PASS] the imageID resolves to the same repository
+  [PASS] the pinned reference resolves in the registry
+  [PASS] the image declares PLATFORM el10
+  [PASS] postgres is 18.x
+
+  ---- summary: PASS=7 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t19_selectors.sh
+═══════════════════════════════════════════════════════════════════════════
+### t19 selectors and labels (regression)
+  [PASS] the labels of CronJob postgresql-failover do not say name=postgresql
+  [PASS] the labels of CronJob postgresql-failover do not say instance=postgresql
+  [PASS] the labels of CronJob postgresql-backup do not say name=postgresql
+  [PASS] the labels of CronJob postgresql-backup do not say instance=postgresql
+  [PASS] postgresql-hl contains exactly the DB pods
+  [PASS] postgresql-rw selects by pod-name
+  [PASS] postgresql-ro selects by pod-name
+  [PASS] postgresql-hl publishes not-ready pods
+
+  ---- summary: PASS=8 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t20_full_restart.sh
+═══════════════════════════════════════════════════════════════════════════
+### t20 full restart after failover
+  (failover to postgresql-1)
+  [PASS] postgresql-1 is primary
+  (recreating BOTH pods at once)
