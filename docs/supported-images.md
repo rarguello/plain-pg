@@ -10,7 +10,7 @@ suite, but they are not supported.
 
 | Image | PostgreSQL | Suite | Transcript |
 |---|---|---:|---|
-| `rhel10/postgresql-18` | 18 | 32/32 | [2026-10-16](evidence/2026-10-16-full-suite.txt) |
+| `rhel10/postgresql-18` | 18 | 33/33 | [2026-10-17](evidence/2026-10-17-full-suite.txt) |
 | `rhel9/postgresql-18` | 18 | 32/32 | [2026-10-17](evidence/2026-10-17-rhel9-postgresql-18-full-suite.txt) |
 | `rhel9/postgresql-16` | 16 | 32/32 | [2026-10-17](evidence/2026-10-17-rhel9-postgresql-16-full-suite.txt) |
 | `rhel10/postgresql-16` | 16 | 32/32 | [2026-10-17](evidence/2026-10-17-rhel10-postgresql-16-full-suite.txt) |
@@ -21,7 +21,8 @@ Images published by Red Hat: RHEL 9 has PostgreSQL 13, 15, 16 and 18; RHEL 10 ha
 not tested.
 
 Each row is one full run of `tests/run-all.sh` against a freshly deployed lab with
-that image. The transcript is the evidence; a run is only counted when it reports
+that image. The four rows dated 2026-10-17 ran before `t33` existed, so they have
+one test less. The transcript is the evidence; a run is only counted when it reports
 `RESULT: ALL OK`.
 
 A green run proves that a fresh install with that image works. It does not prove
