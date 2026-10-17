@@ -28,7 +28,16 @@ PLATFORM="el${REPO#rhel}"; PLATFORM="${PLATFORM%%/*}"
 OUT="$ROOT_DIR/docs/evidence/$(date +%F)-${REPO//\//-}-full-suite.txt"
 
 restore() { [ -f "$BACKUP" ] && cp "$BACKUP" "$PIN"; rm -f "$BACKUP"; }
+SUITE_PID=""
+stop() {
+  # The suite runs in its own process group, so killing the group takes the test
+  # script that is running with it. Without this, an interrupted run leaves an
+  # orphan suite that fights the next run over the same namespace.
+  [ -n "$SUITE_PID" ] && kill -TERM -"$SUITE_PID" 2>/dev/null
+  exit 143
+}
 trap restore EXIT
+trap stop INT TERM
 cp "$PIN" "$BACKUP"
 
 echo "==> $REPO:$TAG  (PostgreSQL $PG, $PLATFORM)"
@@ -67,7 +76,11 @@ oc apply -k "$ROOT_DIR/manifests/overlays/ha" >/dev/null 2>&1 || true
 
 echo "==> running the suite (transcript: ${OUT#"$ROOT_DIR"/})"
 set +e
-EXPECT_PLATFORM="$PLATFORM" EXPECT_PG="$PG" "$ROOT_DIR/tests/run-all.sh" > "$OUT" 2>&1
+set -m
+EXPECT_PLATFORM="$PLATFORM" EXPECT_PG="$PG" "$ROOT_DIR/tests/run-all.sh" > "$OUT" 2>&1 &
+SUITE_PID=$!
+set +m
+wait "$SUITE_PID"
 RC=$?
 set -e
 
