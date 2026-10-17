@@ -28,3 +28,20 @@ this on.
 The limits that matter are in the README and in [docs/failover.md](docs/failover.md):
 fencing is pod-level (not STONITH), replication is asynchronous, backups are
 logical (no point-in-time recovery), and there is no connection pooler.
+
+## Scorecard findings that are deliberate
+
+The OSSF Scorecard reports a few things this repository does not do. The reasons
+are here so nobody has to guess.
+
+Code review: this is a solo project. Pull requests are validated by CI (lint, the
+manifests, the secret scan, and the nightly suite), not by a second reviewer, and
+branch protection does not require an approval.
+
+CII Best Practices badge and fuzzing: there is nothing to fuzz here, since the
+repository is YAML with a small amount of shell and Python, and the badge has not
+been applied for.
+
+Pinned dependencies and token permissions are addressed: every action is pinned by
+commit SHA, and each workflow declares read-only permissions unless a job needs
+more.
