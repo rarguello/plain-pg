@@ -36,6 +36,18 @@ for arg in "$@"; do
   esac
 done
 
+# The Namespace is not part of the base, so that a deployment can live in a
+# namespace of your own without editing anything. Create it if it is missing.
+if ! oc get namespace "$NS" >/dev/null 2>&1; then
+  echo "==> Creating namespace $NS (PodSecurity restricted)"
+  oc create namespace "$NS" --dry-run=client -o yaml | oc apply -f - >/dev/null
+  oc label namespace "$NS" \
+    app.kubernetes.io/part-of=plain-pg \
+    pod-security.kubernetes.io/enforce=restricted \
+    pod-security.kubernetes.io/audit=restricted \
+    pod-security.kubernetes.io/warn=restricted >/dev/null
+fi
+
 TMP="$(mktemp)"
 STS_PATCH="$(mktemp)"
 RW_PATCH="$(mktemp)"

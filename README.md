@@ -29,7 +29,7 @@ digest.
 git clone https://github.com/rarguello/plain-pg.git && cd plain-pg
 
 # 1. the namespace
-oc apply -f manifests/base/namespace.yaml
+oc apply -f manifests/namespace.yaml
 
 # 2. the credentials, created by hand and never committed
 oc -n plain-pg create secret generic postgresql-credentials \
@@ -59,6 +59,10 @@ The new pod reads `PRIMARY_POD`, sees that it is not the primary, and runs
 `pg_basebackup` on its own. Scaling adds the standby only: for the `postgresql-ro`
 Service and automatic failover, apply `manifests/overlays/ha` instead (see
 [Profiles](#profiles)).
+
+Deploying this in your own repository, with your own namespace, StorageClass or
+image, needs no editing: see
+[Deploy with your own values](docs/operations.md#deploy-with-your-own-values).
 
 ## Profiles
 

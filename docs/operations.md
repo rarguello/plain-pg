@@ -7,6 +7,7 @@ metrics, TLS, external access, verification and recovery.
 
 - [Deploy](#deploy): a fresh install, and what re-applying does
 - [Overlays](#overlays): the profiles, and the components they combine
+- [Deploy with your own values](#deploy-with-your-own-values): your namespace, StorageClass or image, without editing this repository
 - [Changing the PostgreSQL image](#changing-the-postgresql-image): platform or version
 - [Single instance](#single-instance-no-replica): one pod, and the step to HA
 - [Credentials](#credentials) · [Scripts](#scripts-test-tooling) · [Metrics](#metrics) · [TLS](#tls) · [External access](#external-access-nodeport)
@@ -19,7 +20,7 @@ hand, then apply. The primary runs `initdb` and the replica `pg_basebackup` on
 startup, so there is nothing else to run.
 
 ```bash
-oc apply -f manifests/base/namespace.yaml
+oc apply -f manifests/namespace.yaml
 # create the Secret first: the full command is under Credentials, below
 oc apply -k manifests/overlays/ha
 oc -n plain-pg get pods      # wait for 2/2 Ready
@@ -72,10 +73,70 @@ Available components: `automatic-failover`, `single-instance`, `metrics`,
 place the PostgreSQL image is pinned; it goes last, because a component's
 transformer only covers the resources accumulated before it).
 
-`plain-pg` is only the example namespace. To deploy elsewhere, change
-`metadata.name` in `manifests/base/namespace.yaml`, the `namespace:` field in each
-overlay, and `NS` in `scripts/lib.sh`; the commands in this document then need the
-same namespace.
+`plain-pg` is only the example namespace (`manifests/namespace.yaml`). To deploy
+elsewhere, do not edit these manifests: reference them from your own kustomization
+and set `namespace:` there, as in
+[Deploy with your own values](#deploy-with-your-own-values). The scripts under
+`scripts/` are the test tooling and take `NAMESPACE`.
+
+## Deploy with your own values
+
+Nothing here needs editing. Keep your own kustomization next to your other
+manifests and reference this repository as a base; the example below changes the
+namespace, the StorageClass and the image.
+
+```yaml
+# my-postgres/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: my-pg                              # everything lands here
+
+resources:
+  # Pin a tag or a commit for reproducibility; `main` follows the repository.
+  - github.com/rarguello/plain-pg//manifests/overlays/ha?ref=main
+
+patches:
+  # No StorageClass is shipped on purpose: the PVCs use the cluster default.
+  # To choose one, patch both PVCs. These are the only two.
+  - target: {kind: StatefulSet, name: postgresql}
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: my-storage-class
+  - target: {kind: PersistentVolumeClaim, name: postgresql-backups}
+    patch: |-
+      - op: add
+        path: /spec/storageClassName
+        value: my-storage-class
+
+# The image is pinned in the repository. To override it, match the real name.
+images:
+  - name: registry.redhat.io/rhel10/postgresql-18
+    newName: registry.redhat.io/rhel9/postgresql-16
+    digest: sha256:791a6f14...
+```
+
+Then create the namespace (with the same PodSecurity labels as the example one),
+the credentials, and apply:
+
+```bash
+oc create namespace my-pg
+oc label namespace my-pg \
+  pod-security.kubernetes.io/enforce=restricted \
+  pod-security.kubernetes.io/audit=restricted \
+  pod-security.kubernetes.io/warn=restricted
+oc -n my-pg create secret generic postgresql-credentials ...   # see Credentials
+oc apply -k my-postgres
+```
+
+Two notes:
+
+- If you vendor this repository next to your kustomization instead of using the
+  remote base, kustomize's file restrictions require
+  `kustomize build --load-restrictor LoadRestrictionsNone . | oc apply -f -`.
+- To choose every piece yourself (the base plus the components), see
+  [Overlays](#overlays).
 
 ## Changing the PostgreSQL image
 

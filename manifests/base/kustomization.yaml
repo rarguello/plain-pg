@@ -7,7 +7,6 @@ kind: Kustomization
 # PostgreSQL image is pinned.
 
 resources:
-  - namespace.yaml
   - configmap-scripts.yaml
   - configmap-role.yaml
   - configmap-backup-scripts.yaml
@@ -16,3 +15,8 @@ resources:
   - statefulset.yaml
   - cronjob-backup.yaml
   - networkpolicy.yaml
+
+# The Namespace is NOT here on purpose: a base meant to be reused should not fix
+# a cluster-scoped name. The example namespace is manifests/namespace.yaml, and
+# an overlay that wants a different one just sets `namespace:` (or creates its
+# own, see docs/operations.md#deploy-with-your-own-values).
