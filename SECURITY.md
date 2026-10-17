@@ -2,9 +2,10 @@
 
 ## Reporting a vulnerability
 
-Use GitHub's private vulnerability reporting: the **Security** tab of this
-repository, then **Report a vulnerability**. Please do not open a public issue for
-a security problem.
+Use GitHub's private vulnerability reporting:
+<https://github.com/rarguello/plain-pg/security/advisories/new> (the **Security**
+tab of this repository, then **Report a vulnerability**). Please do not open a
+public issue for a security problem.
 
 Expect an answer within a week. This is a personal project: there is no support
 contract and no service level.
@@ -37,6 +38,9 @@ are here so nobody has to guess.
 Code review: this is a solo project. Pull requests are validated by CI (lint, the
 manifests, the secret scan, and the nightly suite), not by a second reviewer, and
 branch protection does not require an approval.
+
+Maintained: Scorecard scores a project created in the last 90 days as zero on that
+check. There is nothing to do about it; it clears itself with time.
 
 CII Best Practices badge and fuzzing: there is nothing to fuzz here, since the
 repository is YAML with a small amount of shell and Python, and the badge has not
