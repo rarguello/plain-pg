@@ -1,5 +1,7 @@
 # Reads and scaling
 
+How reads are routed to the instances, and how the read fleet scales.
+
 ## The four Services
 
 | Service | Type | Selects | Use it for |

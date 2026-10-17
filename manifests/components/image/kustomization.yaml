@@ -15,7 +15,7 @@ kind: Component
 # After a major version change, wipe the PGDATA PVCs (PostgreSQL refuses to start
 # on a data directory from another major) and recreate the pods.
 # scripts/test-image.sh does all of that for one combination and runs the suite;
-# docs/image-matrix.md has the table of what has been tested.
+# docs/supported-images.md has the table of what has been tested.
 
 images:
   - name: postgresql

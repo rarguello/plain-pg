@@ -3,7 +3,7 @@
 # update-digest.sh -- prints the current image digest and (with --apply)
 # replaces it in the base (the one place the image is pinned; every overlay
 # inherits it). Changing the platform or the PostgreSQL version is a manual edit
-# of that same block: see docs/image-matrix.md.
+# of that same block: see docs/supported-images.md.
 #
 # Usage:
 #   ./scripts/update-digest.sh            # only shows the digest

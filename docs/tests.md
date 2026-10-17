@@ -1,7 +1,7 @@
 # Tests
 
-The suite runs against a real cluster; there are no mocks. Each test prints
-`[PASS]`/`[FAIL]` per check and returns an exit code.
+The suite runs against a real cluster (no mocks). Each test prints `[PASS]` or
+`[FAIL]` per check and returns an exit code.
 
 ```bash
 ./tests/run-all.sh              # all (destructive: failover, teardown)
@@ -49,22 +49,27 @@ Last full run against a real cluster: **32/32 tests · 317 checks · 0 failures*
 | `t31_single` | The single-instance profile, and scaling to 2 replicas to get a hot standby | 18 | PASS |
 | `t32_single_tls` | The single instance serving TLS (service-ca), plaintext refused | 12 | PASS |
 
-Destructive tests (`t07`, `t08`, `t11`, `t13`, `t15`, `t16`, `t17`, `t23`, `t24`,
-`t26`, `t27`, `t28`, `t29`, `t30`, `t31`, `t32`) change the cluster but leave it
-consistent. `t11` deletes the
-PVCs and redeploys from scratch; `t24` deletes the StatefulSet and checks that
-`deploy.sh` recreates it with the right replica count; `t26`/`t27` mount a TLS
-certificate and recreate the pods; `t28` makes `postgresql-rw` a NodePort and
-restores it; `t29` declares a candidate with the guard set and restarts it; `t30`
-deletes the StatefulSet and both PGDATA PVCs and rebuilds from a dump; `t31` and
-`t32` switch to the single-instance profile (with and without TLS) and back.
-`t23` waits for real HPA decisions and only runs from a fresh two-pod
-lab with `postgresql-0` as primary and no HPA; `t25` needs the
-`monitoring.coreos.com` CRDs and `t26` the service-ca controller, and both
-**skip** without them; `t27` skips without `openssl`. Tests that need `skopeo` and
-a pull secret (`t18`) also skip when it is missing. A `SKIP` is not a pass — read
-the summary, not just the exit code. `t19` covers the two CronJob pod templates,
-not every Job the scripts create.
+Destructive tests change the cluster but leave it consistent: `t07`, `t08`, `t11`,
+`t13`, `t15`, `t16`, `t17`, `t23`, `t24`, `t26`, `t27`, `t28`, `t29`, `t30`, `t31`
+and `t32`.
+
+- `t11` deletes the PVCs and redeploys from scratch.
+- `t23` waits for real HPA decisions; it only runs from a fresh two-pod lab with
+  `postgresql-0` as primary and no HPA.
+- `t24` deletes the StatefulSet and checks that `deploy.sh` recreates it with the
+  right replica count.
+- `t26` and `t27` mount a TLS certificate and recreate the pods.
+- `t28` makes `postgresql-rw` a NodePort and restores it.
+- `t29` declares a candidate with the failover guard set and restarts it.
+- `t30` deletes the StatefulSet and both PGDATA PVCs, then rebuilds from a dump.
+- `t31` and `t32` switch to the single-instance profile (with and without TLS)
+  and back.
+
+Three tests **skip** when the cluster cannot support them, which is not a pass:
+`t25` needs the `monitoring.coreos.com` CRDs, `t26` needs the service-ca
+controller, `t27` needs `openssl`, and `t18` needs `skopeo` and a pull secret.
+Read the summary, not only the exit code. `t19` covers the two CronJob pod
+templates, not every Job the scripts create.
 
 ## Requirements and static checks
 
@@ -110,7 +115,9 @@ reads the pull secret from the `RH_PULL_SECRET` repository secret.
 
 ## Evidence
 
-Raw output of full-suite runs:
-[`evidence/2026-10-16-full-suite.txt`](evidence/2026-10-16-full-suite.txt).
-The per-test check counts are in that transcript; the summary at the end is
-authoritative. It is historical output — rerun the suite after code changes.
+Raw output of full-suite runs, one file per run: the transcript of the supported
+image is [`evidence/2026-10-16-full-suite.txt`](evidence/2026-10-16-full-suite.txt),
+and the other four images have their own, listed in
+[supported-images.md](supported-images.md). The per-test check counts are in each
+transcript; the summary at the end is authoritative. It is historical output:
+rerun the suite after code changes.

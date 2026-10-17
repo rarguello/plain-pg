@@ -50,7 +50,7 @@ else
 fi
 
 # The image is PostgreSQL 18 on RHEL 10 unless the run says otherwise (the
-# matrix runner sets these when it tests another image; see docs/image-matrix.md).
+# matrix runner sets these when it tests another image; see docs/supported-images.md).
 EXPECT_PLATFORM="${EXPECT_PLATFORM:-el10}"
 EXPECT_PG="${EXPECT_PG:-18}"
 check_match "the image declares PLATFORM $EXPECT_PLATFORM" "$EXPECT_PLATFORM" \

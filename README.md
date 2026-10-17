@@ -3,9 +3,9 @@
 PostgreSQL on OpenShift with plain objects: no operator, no CRDs, no console. One
 StatefulSet and a ConfigMap that says which pod is primary.
 
-**With or without HA.** Start with a single instance; when you want a hot
-standby, scale the StatefulSet to 2 replicas and the new pod joins on its own (it
-runs `pg_basebackup` at startup). That is the whole step.
+**With or without HA.** A deployment starts as a single instance. Scaling the
+StatefulSet to 2 replicas adds the hot standby: the new pod reads `PRIMARY_POD`,
+sees that it is not the primary, and runs `pg_basebackup` by itself.
 
 | Overlay | Pods | What you get |
 |---|---:|---|
@@ -16,7 +16,7 @@ runs `pg_basebackup` at startup). That is the whole step.
 
 The PostgreSQL image is pinned in one place, `manifests/components/image/`; moving
 to another platform or version is a one-line change (see
-[docs/image-matrix.md](docs/image-matrix.md)).
+[docs/supported-images.md](docs/supported-images.md)).
 
 The HA profile:
 
@@ -74,7 +74,7 @@ streams its WAL to a hot standby that answers read-only queries. What it does no
 do is decide when to promote the standby, keep `primary_conninfo` current, or
 repoint clients. Those steps are the work:
 
-| Approach | Still on you |
+| Approach | Remaining work |
 |---|---|
 | PostgreSQL on two hosts | build the standby, promote on failure, re-seed the old primary when it returns, repoint clients |
 | The image in a plain StatefulSet | pods restart and reschedule, but nothing configures replication, picks the primary, or repoints the Services |
@@ -160,8 +160,6 @@ The `scripts/` are for the test suite and day-2 operations, not the install:
 
 ## Limits
 
-Known limitations:
-
 | Limit | Consequence |
 |---|---|
 | Fencing is pod-level, not STONITH | a node partitioned from the API server can leave two primary processes |
@@ -172,10 +170,11 @@ Known limitations:
 
 ## Tests
 
-The suite runs against a real cluster, no mocks: **32 tests, 317 checks, 0
-failures** covering deploy, the single-instance profile and the step to HA,
-replication, manual and automatic failover, persistence, backups, disaster
-recovery, scaling, the HPA, metrics, TLS and external access. See
+The suite runs against a real cluster: **32 tests, 317 checks, 0 failures**,
+covering deploy, the single-instance profile and the step to HA, replication,
+manual and automatic failover, persistence, backups, disaster recovery, scaling,
+the HPA, metrics, TLS and external access. The same suite has been run against the
+five images in [docs/supported-images.md](docs/supported-images.md). See
 [docs/tests.md](docs/tests.md).
 
 CI runs it too: on every push it lints, validates the manifests (Kubernetes
@@ -190,7 +189,7 @@ against it, uploading the transcript.
 - [docs/backups.md](docs/backups.md) — backups and restore
 - [docs/scaling.md](docs/scaling.md) — reads and the HPA
 - [docs/tests.md](docs/tests.md) — the test suite
-- [docs/image-matrix.md](docs/image-matrix.md) — which platforms/versions exist and what was probed (investigation)
+- [docs/supported-images.md](docs/supported-images.md) — the images that have been tested, and the supported one
 - [docs/evidence/README.md](docs/evidence/README.md) — raw output of suite runs
 
 ## Layout

@@ -1,5 +1,8 @@
 # Operations
 
+Day-2 operations: deploy a profile, change the PostgreSQL image, credentials,
+metrics, TLS, external access, verification and recovery.
+
 ## Deploy
 
 A real install is just manifests: create the namespace and the credentials Secret
@@ -64,6 +67,50 @@ transformer only covers the resources accumulated before it).
 `metadata.name` in `manifests/base/namespace.yaml`, the `namespace:` field in each
 overlay, and `NS` in `scripts/lib.sh`; the commands in this document then need the
 same namespace.
+
+## Changing the PostgreSQL image
+
+The image is pinned in `manifests/components/image/kustomization.yaml`:
+
+```yaml
+images:
+  - name: postgresql                                   # the logical name used by the resources
+    newName: registry.redhat.io/rhel10/postgresql-18
+    digest: sha256:2e04d97c...
+```
+
+To move to another platform or major version:
+
+1. Edit `newName` and `digest` in that file. For a new build of the same image,
+   `./scripts/update-digest.sh --apply` updates the digest alone.
+
+2. Delete the data. PostgreSQL refuses to start on a data directory from another
+   major version, so the StatefulSet and the PGDATA PVCs must go. The backups PVC
+   is not affected.
+
+   ```bash
+   oc -n plain-pg delete statefulset postgresql --wait=true
+   oc -n plain-pg delete pvc pgdata-postgresql-0 pgdata-postgresql-1 --wait=true
+   ```
+
+3. Apply the overlay and wait for the pods:
+
+   ```bash
+   oc apply -k manifests/overlays/ha
+   oc -n plain-pg get pods      # wait for 2/2 Ready
+   ```
+
+4. Verify:
+
+   ```bash
+   oc -n plain-pg exec postgresql-0 -- postgres --version
+   oc -n plain-pg exec postgresql-0 -- printenv PLATFORM
+   ./scripts/verify-replication.sh
+   ```
+
+`./scripts/test-image.sh rhel9/postgresql-16` performs steps 1 to 3 and then runs
+the whole test suite against the new image. Which images have been tested, and
+which one is supported, is in [supported-images.md](supported-images.md).
 
 ## Single instance (no replica)
 
