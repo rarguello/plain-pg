@@ -52,7 +52,7 @@ oc patch storageclass local-path \
 
 # 2. Pull secret for registry.redhat.io (the PostgreSQL image).
 echo "==> Wiring the pull secret into namespace $NS"
-oc apply -f "$ROOT_DIR/manifests/namespace.yaml"
+oc apply -f "$ROOT_DIR/manifests/base/namespace.yaml"
 if [ -f "$PULL_SECRET" ]; then
   oc -n "$NS" create secret generic redhat-pull \
     --from-file=.dockerconfigjson="$PULL_SECRET" \

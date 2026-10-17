@@ -29,7 +29,7 @@ digest.
 git clone https://github.com/rarguello/plain-pg.git && cd plain-pg
 
 # 1. the namespace
-oc apply -f manifests/namespace.yaml
+oc apply -f manifests/base/namespace.yaml
 
 # 2. the credentials, created by hand and never committed
 oc -n plain-pg create secret generic postgresql-credentials \
