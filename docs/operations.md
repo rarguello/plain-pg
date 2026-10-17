@@ -262,10 +262,35 @@ spec for fields other than 'replicas', 'ordinals', 'template', 'updateStrategy',
 'revisionHistoryLimit', 'persistentVolumeClaimRetentionPolicy' and 'minReadySeconds'
 ```
 
-So the PVCs that exist have to be grown with a patch on each of them (the
-StorageClass needs `allowVolumeExpansion`, and the filesystem grows online), and
-the template only takes effect on a fresh deployment. That path is not covered
-here yet.
+So a deployment that is already running is grown PVC by PVC:
+
+```bash
+# One patch per PVC. The StorageClass must allow expansion
+# (allowVolumeExpansion: true); the filesystem grows online.
+oc -n plain-pg patch pvc pgdata-postgresql-0 -p \
+  '{"spec":{"resources":{"requests":{"storage":"5Gi"}}}}'
+oc -n plain-pg patch pvc pgdata-postgresql-1 -p \
+  '{"spec":{"resources":{"requests":{"storage":"5Gi"}}}}'
+oc -n plain-pg patch pvc postgresql-backups -p \
+  '{"spec":{"resources":{"requests":{"storage":"10Gi"}}}}'
+
+oc -n plain-pg get pvc -o custom-columns=\
+NAME:.metadata.name,SIZE:.spec.resources.requests.storage,CAPACITY:.status.capacity.storage
+```
+
+A PVC only grows. There is no way to shrink one, so pick the size with care.
+
+To make *new* pods get the bigger size as well, the template has to change, and
+that means recreating the StatefulSet. The pods restart and the PVCs stay:
+
+```bash
+oc -n plain-pg delete statefulset postgresql --wait=true
+oc apply -k manifests/overlays/ha-small       # or your own overlay with the size
+```
+
+Until that is done, a pod that is recreated keeps the old template size. That is
+fine: the template is only what a *new* PVC would request, and an existing PVC
+keeps what it has. `t37` runs this whole path.
 
 ## Settings and pg_hba
 
