@@ -11,7 +11,7 @@ The suite runs against a real cluster (no mocks). Each test prints `[PASS]` or
 
 ## Coverage
 
-Last full run against a real cluster: **34/34 tests · 352 checks · 0 failures**
+Last full run against a real cluster: **35/35 tests · 358 checks · 0 failures**
 (transcript in [Evidence](#evidence)).
 
 | Test | What it proves | Checks | Result |
@@ -51,10 +51,11 @@ Last full run against a real cluster: **34/34 tests · 352 checks · 0 failures*
 | `t33_settings` | `components/settings` applies settings and extra `pg_hba` rules, and removes them | 16 | PASS |
 | `t34_pvc_size` | The PVC size is chosen at deploy time (1Gi instead of 2Gi), and the default comes back | 14 | PASS |
 | `t35_port_forward` | A port-forward to `postgresql-rw` reaches the primary, as documented | 5 | PASS |
+| `t36_networkpolicy` | Another namespace is blocked, allowed by the documented `namespaceSelector`, and blocked again | 6 | PASS |
 
 Destructive tests change the cluster but leave it consistent: `t07`, `t08`, `t11`,
 `t13`, `t15`, `t16`, `t17`, `t23`, `t24`, `t26`, `t27`, `t28`, `t29`, `t30`, `t31`,
-`t32`, `t33` and `t34`.
+`t32`, `t33`, `t34` and `t36`.
 
 - `t11` deletes the PVCs and redeploys from scratch.
 - `t23` waits for real HPA decisions; it only runs from a fresh two-pod lab with
@@ -70,6 +71,8 @@ Destructive tests change the cluster but leave it consistent: `t07`, `t08`, `t11
 - `t33` applies the settings component, restarts the pods, and removes it again.
 - `t34` tears the lab down and deploys it twice: once with 1Gi PVCs, once with the
   defaults.
+- `t36` creates its own throwaway client namespace, which is the one exception to
+  rule 4 of AGENTS.md.
 
 Three tests **skip** when the cluster cannot support them, which is not a pass:
 `t25` needs the `monitoring.coreos.com` CRDs, `t26` the service-ca controller and

@@ -493,9 +493,10 @@ postgresql-r.plain-pg.svc.cluster.local:5432      reads (every Ready pod)
 postgresql-ro.plain-pg.svc.cluster.local:5432     reads (one standby)
 ```
 
-This one is not covered by the suite: it needs a second namespace, and the suite is
-not allowed to touch other namespaces (AGENTS.md, rule 4). It is the one procedure
-here that is documented without a test behind it.
+`t36` covers this end to end: it creates a throwaway client namespace with a pod
+that runs `psql` against the Service, checks that the connection is blocked with
+the default policy, applies the policy above, checks that the same query now
+works, and deletes both.
 
 ## External access (NodePort)
 

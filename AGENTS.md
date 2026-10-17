@@ -19,7 +19,9 @@ Details and commands: `README.md`.
    by digest. (The metrics exporter in `components/metrics` is the one documented
    exception: Red Hat publishes no exporter image; see the allowlist in
    `tools/check-policies.py`.)
-4. **Test namespace: `plain-pg`.** Do not touch other namespaces.
+4. **Test namespace: `plain-pg`.** Do not touch other namespaces, except a
+   throwaway one that a test creates and deletes itself (`t36` does that, for the
+   cross-namespace NetworkPolicy).
 5. **Do not hardcode a StorageClass** unless it is unavoidable (and document it).
 6. **Everything documented was tested.** No untested procedures.
 7. **Idempotency:** every script must survive being run twice.
