@@ -81,44 +81,37 @@ and set `namespace:` there, as in
 
 ## Deploy with your own values
 
-Nothing here needs editing. Keep your own kustomization next to your other
-manifests and reference this repository as a base; the example below changes the
-namespace, the StorageClass and the image.
+Nothing in this repository needs editing. Keep your own kustomization next to your
+other manifests and reference this repository as a base. Both examples below are
+complete: `my-postgres/kustomization.yaml` in your own repository.
+
+### Example 1: your namespace and your StorageClass
 
 ```yaml
-# my-postgres/kustomization.yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: my-pg                              # everything lands here
+namespace: my-pg
 
 resources:
   # Pin a tag or a commit for reproducibility; `main` follows the repository.
   - github.com/rarguello/plain-pg//manifests/overlays/ha?ref=main
 
 patches:
-  # No StorageClass is shipped on purpose: the PVCs use the cluster default.
-  # To choose one, patch both PVCs. These are the only two.
+  # The deployment has two PVCs. No StorageClass is shipped on purpose: they use
+  # the cluster default. This example gives the data a faster class than the
+  # backups.
   - target: {kind: StatefulSet, name: postgresql}
     patch: |-
       - op: replace
         path: /spec/volumeClaimTemplates/0/spec/storageClassName
-        value: my-storage-class
+        value: fast-ssd
   - target: {kind: PersistentVolumeClaim, name: postgresql-backups}
     patch: |-
       - op: add
         path: /spec/storageClassName
-        value: my-storage-class
-
-# The image is pinned in the repository. To override it, match the real name.
-images:
-  - name: registry.redhat.io/rhel10/postgresql-18
-    newName: registry.redhat.io/rhel9/postgresql-16
-    digest: sha256:791a6f14...
+        value: standard
 ```
-
-Then create the namespace (with the same PodSecurity labels as the example one),
-the credentials, and apply:
 
 ```bash
 oc create namespace my-pg
@@ -130,7 +123,40 @@ oc -n my-pg create secret generic postgresql-credentials ...   # see Credentials
 oc apply -k my-postgres
 ```
 
-Two notes:
+### Example 2: another PostgreSQL version
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: my-pg
+
+resources:
+  - github.com/rarguello/plain-pg//manifests/overlays/ha?ref=main
+
+# The image is pinned in this repository. Match the real name: the base renames
+# the logical one, so `name: postgresql` would match nothing here.
+images:
+  - name: registry.redhat.io/rhel10/postgresql-18
+    newName: registry.redhat.io/rhel9/postgresql-16
+    digest: sha256:791a6f14563178d1bbcd3515bc7dc80c1ae0788a829ff26551cdedbf8f50f0d2
+```
+
+The digest is the one you want to run:
+
+```bash
+skopeo inspect --authfile ~/.pull-secret.json \
+  docker://registry.redhat.io/rhel9/postgresql-16 | jq -r .Digest
+```
+
+**A different major version does not reuse the data directory.** PostgreSQL
+refuses to start on a PGDATA from another major, so delete the StatefulSet and the
+`pgdata-*` PVCs before applying (the backups PVC is not affected), or deploy into
+a fresh namespace. See [Changing the PostgreSQL image](#changing-the-postgresql-image)
+for the same change made in this repository, and
+[Supported images](supported-images.md) for what has been tested.
+
+### Notes for both
 
 - If you vendor this repository next to your kustomization instead of using the
   remote base, kustomize's file restrictions require
@@ -140,7 +166,12 @@ Two notes:
 
 ## Changing the PostgreSQL image
 
-The image is pinned in `manifests/components/image/kustomization.yaml`:
+This section is for this repository. To override the image from an overlay of your
+own, without editing anything here, see Example 2 in
+[Deploy with your own values](#deploy-with-your-own-values).
+
+In this repository the image is pinned in
+`manifests/components/image/kustomization.yaml`:
 
 ```yaml
 images:

@@ -1,0 +1,134 @@
+== ensuring the lab is deployed (scripts/deploy.sh)
+
+═══════════════════════════════════════════════════════════════════════════
+== t01_deploy.sh
+═══════════════════════════════════════════════════════════════════════════
+### t01 deployment: objects, PVCs, pods, pinned image
+  [PASS] namespace plain-pg exists
+  [PASS] Secret postgresql-credentials exists
+  [PASS] the Secret has the key POSTGRESQL_USER
+  [PASS] the Secret has the key POSTGRESQL_PASSWORD
+  [PASS] the Secret has the key POSTGRESQL_DATABASE
+  [PASS] the Secret has the key POSTGRESQL_ADMIN_PASSWORD
+  [PASS] the Secret has the key POSTGRESQL_MASTER_USER
+  [PASS] the Secret has the key POSTGRESQL_MASTER_PASSWORD
+  [PASS] ConfigMap postgresql-scripts exists
+  [PASS] ConfigMap postgresql-role exists
+  [PASS] Service postgresql-hl exists
+  [PASS] Service postgresql-rw exists
+  [PASS] Service postgresql-ro exists
+  [PASS] StatefulSet postgresql exists
+  [PASS] NetworkPolicy postgresql-ingress exists
+  [PASS] CronJob postgresql-failover exists
+  [PASS] replicas=2
+  [PASS] serviceName=postgresql-hl
+  [PASS] podManagementPolicy=Parallel
+  [PASS] updateStrategy=OnDelete
+  [PASS] PVC pgdata-postgresql-0 is Bound
+  [PASS] PVC pgdata-postgresql-1 is Bound
+  [PASS] the PVCs use the default StorageClass
+  [PASS] pod postgresql-0 is Ready
+  [PASS] pod postgresql-1 is Ready
+  [PASS] the image comes from registry.redhat.io
+  [PASS] the image is pinned by digest
+  [PASS] the server is PostgreSQL 18.x
+  [PASS] the base is Red Hat Enterprise Linux
+
+  ---- summary: PASS=29 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t02_roles.sh
+═══════════════════════════════════════════════════════════════════════════
+### t02 pod roles
+  [PASS] the ConfigMap declares postgresql-0 as primary
+  [PASS] the primary is not in recovery
+  [PASS] the replica is in recovery
+  [PASS] the primary does NOT have standby.signal
+  [PASS] the primary does NOT have recovery.signal
+  [PASS] the replica DOES have standby.signal
+  [PASS] the replica does NOT have recovery.signal
+  [PASS] primary_conninfo points at postgresql-0
+  [PASS] primary_conninfo uses the replication user
+  [PASS] the primary sees 1 replica streaming
+  [PASS] replica application_name
+
+  ---- summary: PASS=11 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t03_replication.sh
+═══════════════════════════════════════════════════════════════════════════
+### t03 streaming replication
+  [PASS] the replica is in 'streaming' state
+  [PASS] sync_state is async or sync
+  [PASS] the replay lag is 0 bytes
+  [PASS] row 'repl-1792207252-21360' appears on the replica
+  [PASS] row 'repl-1792207252-21360' is on the primary
+  [PASS] the replica REJECTS writes (read-only)
+  [PASS] the replica can read the replicated table
+
+  ---- summary: PASS=7 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t04_services.sh
+═══════════════════════════════════════════════════════════════════════════
+### t04 services and DNS
+  [PASS] postgresql-rw points only at the primary
+  [PASS] postgresql-ro points only at the replica
+  [PASS] postgresql-r includes every Ready DB pod
+  [PASS] postgresql-hl has exactly the 2 DB pods
+  [PASS] postgresql-hl does NOT include failover CronJob pods
+  [PASS] connecting through postgresql-rw gives a primary
+  [PASS] connecting through postgresql-ro gives a standby
+  [PASS] connecting through postgresql-r works
+  [PASS] postgresql-r distributes connections across more than one instance
+  [PASS] headless per-pod DNS resolves and connects (primary)
+  [PASS] headless per-pod DNS resolves and connects (replica)
+
+  ---- summary: PASS=11 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t05_config.sh
+═══════════════════════════════════════════════════════════════════════════
+### t05 replication configuration
+  [PASS] valid wal_level on postgresql-0
+  [PASS] hot_standby=on en postgresql-0
+  [PASS] max_wal_senders >= 1 on postgresql-0 (=6)
+  [PASS] valid wal_level on postgresql-1
+  [PASS] hot_standby=on en postgresql-1
+  [PASS] max_wal_senders >= 1 on postgresql-1 (=6)
+  [PASS] user replicator exists
+  [PASS] user replicator has the REPLICATION privilege
+  [PASS] pg_hba.conf allows replication connections
+  [PASS] the app database (appdb) exists
+  [PASS] the app user (app) exists
+  [PASS] the app user authenticates correctly
+  [PASS] postgresql.conf includes the image config
+
+  ---- summary: PASS=13 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t06_persistence.sh
+═══════════════════════════════════════════════════════════════════════════
+### t06 persistence and restarts
+  [PASS] row 'persist-1792207347-32232' replicates
+  (restarting the replica postgresql-1)
+  [PASS] the replica becomes Ready again
+  [PASS] the replica keeps its PVC (same UID)
+  [PASS] the replica did NOT re-seed (no 'wiping PGDATA' in logs)
+  [PASS] the replica is still standby after restarting
+  [PASS] row 'persist-1792207347-32232' is still on the replica
+  [PASS] replication resumes after restarting the replica
+  (restarting the primary postgresql-0)
+  [PASS] the primary becomes Ready again
+  [PASS] the primary is still primary
+  [PASS] row 'persist-1792207347-32232' is still on the primary
+  [PASS] replication resumes after restarting the primary
+
+  ---- summary: PASS=11 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t07_failover_manual.sh
+═══════════════════════════════════════════════════════════════════════════
+### t07 manual failover (round trip)
+  [PASS] row 'fo-1792207395-2573' replicates before the failover
+  (running scripts/failover-manual.sh postgresql-1)
