@@ -10,7 +10,7 @@ digest.
 
 | | |
 |---|---|
-| Supported image | PostgreSQL 18 on RHEL 10 (`rhel10/postgresql-18`) |
+| Supported image | PostgreSQL 18 on a RHEL 10 container (`rhel10/postgresql-18`) |
 | Objects | StatefulSet, Services, ConfigMaps, CronJobs, NetworkPolicy, PVCs — no CRDs |
 | Verified by | 32 tests, 317 checks, against a real cluster ([evidence](docs/evidence/README.md)) |
 
