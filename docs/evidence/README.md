@@ -6,7 +6,7 @@ authoritative. A `SKIP` is not a pass.
 
 | File | Date | Image | Result |
 |---|---|---|---|
-| [`2026-10-17-full-suite.txt`](2026-10-17-full-suite.txt) | 2026-10-17 | `rhel10/postgresql-18` (supported) | 33/33 tests, 330 checks, 0 failures |
+| [`2026-10-17-full-suite.txt`](2026-10-17-full-suite.txt) | 2026-10-17 | `rhel10/postgresql-18` (supported) | 33/33 tests, 333 checks, 0 failures |
 | [`2026-10-17-rhel9-postgresql-18-full-suite.txt`](2026-10-17-rhel9-postgresql-18-full-suite.txt) | 2026-10-17 | `rhel9/postgresql-18` | 32/32 tests, 317 checks, 0 failures |
 | [`2026-10-17-rhel9-postgresql-16-full-suite.txt`](2026-10-17-rhel9-postgresql-16-full-suite.txt) | 2026-10-17 | `rhel9/postgresql-16` | 32/32 tests, 317 checks, 0 failures |
 | [`2026-10-17-rhel10-postgresql-16-full-suite.txt`](2026-10-17-rhel10-postgresql-16-full-suite.txt) | 2026-10-17 | `rhel10/postgresql-16` | 32/32 tests, 317 checks, 0 failures |
