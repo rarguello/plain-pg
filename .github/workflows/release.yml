@@ -21,7 +21,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          EVIDENCE="$(find docs/evidence -name '*-full-suite.txt' | sort | tail -1)"
+          # The supported image's transcript is the one without an image in its
+          # name (docs/supported-images.md); the matrix runs carry the image.
+          EVIDENCE="$(find docs/evidence -name '*-full-suite.txt' \
+            ! -name '*-rhel*-full-suite.txt' | sort | tail -1)"
           gh release create "$GITHUB_REF_NAME" "$EVIDENCE" \
             --title "$GITHUB_REF_NAME" \
             --notes "Full-suite evidence: \`$(basename "$EVIDENCE")\` (see docs/evidence/README.md)."
