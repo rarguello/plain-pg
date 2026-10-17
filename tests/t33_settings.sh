@@ -51,6 +51,22 @@ check_eq "the local connection still works" "1" \
 streaming() { [ "$(streaming_count "$PRIMARY")" = "1" ]; }
 wait_for 120 "replication is unaffected" streaming
 
+echo "  (the documented example: replacing the image's md5 with scram-sha-256)"
+oc -n "$NS" patch configmap postgresql-hba --type merge -p \
+  '{"data":{"extra.conf":"host all all all scram-sha-256\n"}}' >/dev/null
+oc -n "$NS" delete pod postgresql-0 postgresql-1 --ignore-not-found >/dev/null 2>&1
+wait_for 300 "the two pods are Ready again" wait_db_ready 2
+
+NEW_PRIMARY="$(primary_pod)"
+check_contains "pg_hba_file_rules reports our rule as scram-sha-256" "scram-sha-256" \
+  "$(pod_psql_admin "$NEW_PRIMARY" -tAc \
+     "SELECT auth_method FROM pg_hba_file_rules WHERE address = 'all' ORDER BY line_number LIMIT 1" 2>/dev/null)"
+remote_scram_ok() {
+  oc -n "$NS" exec "$NEW_PRIMARY" -- env PGPASSWORD="$APP_PASSWORD" \
+    psql -h postgresql-rw -U "$APP_USER" -d "$APP_DB" -tAc 'SELECT 1' 2>/dev/null | grep -qx 1
+}
+check "a remote connection authenticates with it" remote_scram_ok
+
 echo "  (removing the component)"
 oc apply -k "$ROOT_DIR/manifests/overlays/ha" >/dev/null 2>&1 \
   || c_fail "re-applying overlays/ha failed"

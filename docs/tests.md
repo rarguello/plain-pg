@@ -11,7 +11,7 @@ The suite runs against a real cluster (no mocks). Each test prints `[PASS]` or
 
 ## Coverage
 
-Last full run against a real cluster: **33/33 tests · 330 checks · 0 failures**
+Last full run against a real cluster: **33/33 tests · 333 checks · 0 failures**
 (transcript in [Evidence](#evidence)).
 
 | Test | What it proves | Checks | Result |
@@ -48,7 +48,7 @@ Last full run against a real cluster: **33/33 tests · 330 checks · 0 failures*
 | `t30_dr_drill` | With both PGDATA PVCs lost, the cluster is rebuilt and the dump is loaded back | 10 | PASS |
 | `t31_single` | The single-instance profile, and scaling to 2 replicas to get a hot standby | 18 | PASS |
 | `t32_single_tls` | The single instance serving TLS (service-ca), plaintext refused | 12 | PASS |
-| `t33_settings` | `components/settings` applies settings and extra `pg_hba` rules, and removes them | 13 | PASS |
+| `t33_settings` | `components/settings` applies settings and extra `pg_hba` rules, and removes them | 16 | PASS |
 
 Destructive tests change the cluster but leave it consistent: `t07`, `t08`, `t11`,
 `t13`, `t15`, `t16`, `t17`, `t23`, `t24`, `t26`, `t27`, `t28`, `t29`, `t30`, `t31`,

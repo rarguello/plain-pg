@@ -170,12 +170,13 @@ Not enabled by default:
 | Replication is asynchronous | a failover can lose the last unreplicated transactions |
 | Backups are logical (`pg_dump`), no WAL archiving | no point-in-time recovery; the copies live in the cluster |
 | No connection pooler | every client connection is a PostgreSQL process (100 per pod), and a failover drops them all: the clients must reconnect |
+| The image writes `md5` in `pg_hba.conf` | PostgreSQL 18 deprecates it and logs warnings; `ha-settings` replaces it with `scram-sha-256` in two lines (`md5` rules still use SCRAM when the stored password is a SCRAM hash) |
 | No operator, no consensus | failover is manual or an optional best-effort CronJob, not turnkey HA |
 | The single profile | a restart, an upgrade or a node failure is downtime |
 
 ## Tests and evidence
 
-The suite runs against a real cluster: **33 tests, 330 checks**, covering deploy,
+The suite runs against a real cluster: **33 tests, 333 checks**, covering deploy,
 the single-instance profile and the step to HA, replication, manual and automatic
 failover, persistence, backups, disaster recovery, scaling, the HPA, metrics, TLS
 and external access. The last full run: 32/32, 0 failures
