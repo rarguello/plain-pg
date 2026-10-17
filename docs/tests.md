@@ -11,7 +11,7 @@ The suite runs against a real cluster (no mocks). Each test prints `[PASS]` or
 
 ## Coverage
 
-Last full run against a real cluster: **32/32 tests · 317 checks · 0 failures**
+Last full run against a real cluster: **33/33 tests · 330 checks · 0 failures**
 (transcript in [Evidence](#evidence)).
 
 | Test | What it proves | Checks | Result |
@@ -48,10 +48,11 @@ Last full run against a real cluster: **32/32 tests · 317 checks · 0 failures*
 | `t30_dr_drill` | With both PGDATA PVCs lost, the cluster is rebuilt and the dump is loaded back | 10 | PASS |
 | `t31_single` | The single-instance profile, and scaling to 2 replicas to get a hot standby | 18 | PASS |
 | `t32_single_tls` | The single instance serving TLS (service-ca), plaintext refused | 12 | PASS |
+| `t33_settings` | `components/settings` applies settings and extra `pg_hba` rules, and removes them | 13 | PASS |
 
 Destructive tests change the cluster but leave it consistent: `t07`, `t08`, `t11`,
-`t13`, `t15`, `t16`, `t17`, `t23`, `t24`, `t26`, `t27`, `t28`, `t29`, `t30`, `t31`
-and `t32`.
+`t13`, `t15`, `t16`, `t17`, `t23`, `t24`, `t26`, `t27`, `t28`, `t29`, `t30`, `t31`,
+`t32` and `t33`.
 
 - `t11` deletes the PVCs and redeploys from scratch.
 - `t23` waits for real HPA decisions; it only runs from a fresh two-pod lab with
@@ -64,6 +65,7 @@ and `t32`.
 - `t30` deletes the StatefulSet and both PGDATA PVCs, then rebuilds from a dump.
 - `t31` and `t32` switch to the single-instance profile (with and without TLS)
   and back.
+- `t33` applies the settings component, restarts the pods, and removes it again.
 
 Three tests **skip** when the cluster cannot support them, which is not a pass:
 `t25` needs the `monitoring.coreos.com` CRDs, `t26` the service-ca controller and
@@ -82,7 +84,7 @@ the scripts create.
   exists, Python with PyYAML, and it generates a throwaway
   `postgresql-credentials` Secret from gitignored `secrets/` (a real deploy
   creates it by hand; see `operations.md`).
-- Without a cluster, `make lint` runs shellcheck, renders the nine overlays, and
+- Without a cluster, `make lint` runs shellcheck, renders the ten overlays, and
   validates the embedded scripts (`tools/check-scripts.py`) and the AGENTS.md hard
   rules (pinned Red Hat image, no operators, namespace, auxiliary-pod labels,
   PodSecurity) via `tools/check-policies.py`. CI (`.github/workflows/ci.yml`)

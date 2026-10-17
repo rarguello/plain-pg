@@ -175,7 +175,7 @@ Not enabled by default:
 
 ## Tests and evidence
 
-The suite runs against a real cluster: **32 tests, 317 checks**, covering deploy,
+The suite runs against a real cluster: **33 tests, 330 checks**, covering deploy,
 the single-instance profile and the step to HA, replication, manual and automatic
 failover, persistence, backups, disaster recovery, scaling, the HPA, metrics, TLS
 and external access. The last full run: 32/32, 0 failures

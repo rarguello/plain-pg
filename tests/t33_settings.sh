@@ -33,7 +33,8 @@ check_contains "postgresql.auto.conf includes our settings file" "plain-pg-setti
 
 HBA="$(oc -n "$NS" exec "$PRIMARY" -- grep -nE '^(host|hostssl|hostnossl)' "$PGDATA_PATH/pg_hba.conf" 2>/dev/null)"
 REJECT_LINE="$(printf '%s\n' "$HBA" | grep -F 'reject' | head -1 | cut -d: -f1)"
-CATCHALL_LINE="$(printf '%s\n' "$HBA" | grep -F 'all all all' | head -1 | cut -d: -f1)"
+# The image's catch-all is the LAST `all all all` line: ours is inserted before it.
+CATCHALL_LINE="$(printf '%s\n' "$HBA" | grep -F 'all all all' | tail -1 | cut -d: -f1)"
 check "the extra rule is in pg_hba.conf" bash -c "[ -n '$REJECT_LINE' ]"
 check "it comes before the image's catch-all" bash -c \
   "[ -n '$CATCHALL_LINE' ] && [ '$REJECT_LINE' -lt '$CATCHALL_LINE' ]"
