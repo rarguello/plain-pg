@@ -66,10 +66,10 @@ and `t32`.
   and back.
 
 Three tests **skip** when the cluster cannot support them, which is not a pass:
-`t25` needs the `monitoring.coreos.com` CRDs, `t26` needs the service-ca
-controller, `t27` needs `openssl`, and `t18` needs `skopeo` and a pull secret.
-Read the summary, not only the exit code. `t19` covers the two CronJob pod
-templates, not every Job the scripts create.
+`t25` needs the `monitoring.coreos.com` CRDs, `t26` the service-ca controller and
+`t27` `openssl`; `t18` skips without `skopeo` and a pull secret. Read the summary,
+not only the exit code. `t19` covers the two CronJob pod templates, not every Job
+the scripts create.
 
 ## Requirements and static checks
 

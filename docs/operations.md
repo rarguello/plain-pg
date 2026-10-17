@@ -3,6 +3,15 @@
 Day-2 operations: deploy a profile, change the PostgreSQL image, credentials,
 metrics, TLS, external access, verification and recovery.
 
+## Contents
+
+- [Deploy](#deploy) — a fresh install, and what re-applying does
+- [Overlays](#overlays) — the profiles, and the components they combine
+- [Changing the PostgreSQL image](#changing-the-postgresql-image) — platform or version
+- [Single instance](#single-instance-no-replica) — one pod, and the step to HA
+- [Credentials](#credentials) · [Scripts](#scripts-test-tooling) · [Metrics](#metrics) · [TLS](#tls) · [External access](#external-access-nodeport)
+- [Verify and connect](#verify-and-connect) · [Frequent tasks](#frequent-tasks) · [Recovery](#recovery) · [Sharp edges](#sharp-edges)
+
 ## Deploy
 
 An install is manifests only: create the namespace and the credentials Secret by

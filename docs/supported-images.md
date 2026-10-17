@@ -24,6 +24,11 @@ Each row is one full run of `tests/run-all.sh` against a freshly deployed lab wi
 that image. The transcript is the evidence; a run is only counted when it reports
 `RESULT: ALL OK`.
 
+A green run proves that a fresh install with that image works. It does not prove
+that a migration from another major version is safe: the suite never upgrades an
+existing data directory. For a real change, follow
+[Changing the PostgreSQL image](operations.md#changing-the-postgresql-image).
+
 ## Testing another image
 
 ```bash

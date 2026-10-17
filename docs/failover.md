@@ -1,7 +1,13 @@
 # Failover
 
 The primary is the pod named by `PRIMARY_POD` in the `postgresql-role` ConfigMap.
-Promoting a replica means changing that value and recreating pods.
+Promoting a standby means changing that value and recreating pods.
+
+Two terms used below. **Fencing** is forcing the old primary out so that two
+primaries cannot coexist; here it is pod-level, and it verifies the Kubernetes pod
+object, not that the PostgreSQL process died — it is not STONITH (node power-off).
+A node partitioned from the API server can therefore leave two primary processes,
+which is **split-brain**.
 
 ## Manual (the supported path)
 
@@ -71,6 +77,3 @@ Read these before relying on automatic failover.
 | Promotion does not check the replay position | a reachable but stale standby can be promoted | check the standby's replay position by hand before promoting if the loss must be bounded |
 | Manual, automatic and `oc apply -k` are not mutually exclusive | interleaved writes to the role and the Services can clobber each other (only the ConfigMap patch uses `resourceVersion`) | run one operator at a time: no manual failover during a deploy or while the CronJob is acting |
 | The promotion fails | the declared state stays on the candidate; the ex-primary is isolated | finish it (`oc -n plain-pg delete pod <candidate>`) or roll back explicitly |
-
-Fencing is **not STONITH**: it verifies the Kubernetes pod object, not that the
-PostgreSQL process died, so it is a lab-grade guarantee.

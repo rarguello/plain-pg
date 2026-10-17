@@ -1,162 +1,164 @@
 # plain-pg
 
-PostgreSQL on OpenShift with plain objects: no operator, no CRDs, no console. One
-StatefulSet and a ConfigMap that says which pod is primary.
+Run PostgreSQL on OpenShift with plain Kubernetes manifests: one StatefulSet and a
+ConfigMap that names the primary. No operator is required for the core install.
 
-**With or without HA.** A deployment starts as a single instance. Scaling the
-StatefulSet to 2 replicas adds the hot standby: the new pod reads `PRIMARY_POD`,
-sees that it is not the primary, and runs `pg_basebackup` by itself.
+Start with one pod and daily `pg_dump` backups; choose the HA profile for a hot
+standby and optional automatic failover. Every profile runs non-root under
+PodSecurity `restricted`, with an ingress NetworkPolicy and the image pinned by
+digest.
 
-| Overlay | Pods | What you get |
-|---|---:|---|
-| `single` | 1 | one pod, same hardening, `pg_dump` backups |
-| `single-tls` | 1 | the same, serving TLS (certificate from OpenShift's service-ca) |
-| `ha` | 2 | a hot standby, the `postgresql-ro` Service, automatic failover |
-| `ha-manual` | 2 | a hot standby, manual failover only (no CronJob) |
-
-The PostgreSQL image is pinned in one place, `manifests/components/image/`; moving
-to another platform or version is a one-line change (see
-[docs/supported-images.md](docs/supported-images.md)).
-
-The HA profile:
-
-```mermaid
-flowchart TB
-  app(["app / clients"])
-
-  subgraph services["Services"]
-    rw["postgresql-rw<br/>primary"]
-    r["postgresql-r<br/>every Ready pod"]
-    ro["postgresql-ro<br/>one replica"]
-  end
-
-  subgraph db["StatefulSet postgresql"]
-    p0[("postgresql-0<br/>PRIMARY")]
-    p1[("postgresql-1<br/>HOT STANDBY")]
-    p2[("postgresql-2+<br/>read replicas")]
-  end
-
-  hl["postgresql-hl<br/>headless, per-pod DNS"]
-
-  app -->|writes| rw --> p0
-  app -->|reads, balanced| r --> p0
-  r --> p1
-  r --> p2
-  app -->|reads, replica| ro --> p1
-
-  p0 -.->|WAL streaming| p1
-  p0 -.-> p2
-  p0 -.- hl
-  p1 -.- hl
-  p2 -.- hl
-
-  backup["CronJob postgresql-backup"] -->|pg_dump via -rw| rw
-  backup --> dump[("PVC postgresql-backups")]
-  failover["CronJob postgresql-failover"] -.->|promotes 0 or 1| p1
-  hpa["HPA postgresql-read"] -.->|adds replicas 2+| p2
-```
-
-`postgresql-rw` carries writes to the primary. `postgresql-r` spreads reads over
-every Ready pod (primary and all replicas). `postgresql-ro` pins one replica.
-Replication is WAL streaming, and `postgresql-hl` gives each pod a stable DNS name
-so a replica can find the primary. Each pod keeps its data on its own
-`pgdata-postgresql-N` PVC.
-
-With one replica only `postgresql-0` exists: there is no standby to stream to, no
-`postgresql-ro` (nothing to pin) and nothing to promote, so `single` leaves
-both out.
-
-## Why it exists
-
-One PostgreSQL server is a single point of failure and one server's worth of
-reads. PostgreSQL ships the fix: **streaming replication**, where the primary
-streams its WAL to a hot standby that answers read-only queries. What it does not
-do is decide when to promote the standby, keep `primary_conninfo` current, or
-repoint clients. Those steps are the work:
-
-| Approach | Remaining work |
+| | |
 |---|---|
-| PostgreSQL on two hosts | build the standby, promote on failure, re-seed the old primary when it returns, repoint clients |
-| The image in a plain StatefulSet | pods restart and reschedule, but nothing configures replication, picks the primary, or repoints the Services |
-| An HA stack (CloudNativePG, Patroni, ...) | more automation, and another system to run |
+| Supported image | PostgreSQL 18 on RHEL 10 (`rhel10/postgresql-18`) |
+| Objects | StatefulSet, Services, ConfigMaps, CronJobs, NetworkPolicy, PVCs — no CRDs |
+| Verified by | 32 tests, 317 checks, against a real cluster ([evidence](docs/evidence/README.md)) |
 
-This repo does those steps with PostgreSQL's own replication and plain objects: a
-ConfigMap holds the role, the entrypoint configures each pod for it, reads scale
-through `postgresql-r`, and failover is a script. The same objects, with one
-replica, are the single-instance profile.
+## Requirements
 
-## How the primary is chosen
+- `oc` logged in, with permission to create the namespace and the objects in it.
+- A default StorageClass: the StatefulSet creates its PVCs, and they are not
+  deleted when it is.
+- The credentials Secret, created by hand before the first apply — the exact
+  command is in [Credentials](docs/operations.md#credentials).
+- Pull access to `registry.redhat.io` from the nodes (a Red Hat pull secret).
 
-`postgresql-0` is primary by convention, not by code. On startup each pod reads
-`PRIMARY_POD` and, if it matches its own name, starts as primary; otherwise it
-starts as a replica of the named pod. There is no leader election: the role is an
-explicit value you change on purpose.
-
-The entrypoint also brings `PGDATA` to the assigned role:
-
-| desired | `PGDATA` holds | action |
-|---|---|---|
-| primary | empty | `initdb` + user creation (done by the image) |
-| primary | standby | delete `standby.signal` → promote |
-| replica | empty | `pg_basebackup` from the primary |
-| replica | primary | wipe and re-seed |
-| replica | standby | start and refresh `primary_conninfo` |
-
-A failover is changing the role and recreating the pods; a pod that comes back
-with the wrong role re-seeds or promotes itself on startup.
-
-## Quick start
-
-Create the namespace and the credentials Secret (never in git), then apply a
-profile. The primary runs `initdb`; every other pod runs `pg_basebackup` on
-startup.
+## Try it
 
 ```bash
 git clone https://github.com/rarguello/plain-pg.git && cd plain-pg
 
-oc apply -f manifests/base/namespace.yaml          # the plain-pg namespace
+oc apply -f manifests/base/namespace.yaml
 oc -n plain-pg create secret generic postgresql-credentials \
   --from-literal=POSTGRESQL_USER=app        --from-literal=POSTGRESQL_PASSWORD='<app-pw>' \
   --from-literal=POSTGRESQL_DATABASE=appdb  --from-literal=POSTGRESQL_ADMIN_PASSWORD='<admin-pw>' \
   --from-literal=POSTGRESQL_MASTER_USER=replicator --from-literal=POSTGRESQL_MASTER_PASSWORD='<repl-pw>'
 
-oc apply -k manifests/overlays/single          # one pod
-oc -n plain-pg get pods                            # wait for 1/1 Ready
-
-oc -n plain-pg scale sts postgresql --replicas=2   # HA: a hot standby joins
+oc apply -k manifests/overlays/single      # one pod
+oc -n plain-pg get pods                    # wait for 1/1 Ready
 ```
 
-`oc apply -k` is for a fresh install. Re-applying it after a failover or an HPA
-scale resets `PRIMARY_POD`, the `-rw`/`-ro` selectors and `spec.replicas`; on a
-live cluster use `scripts/deploy.sh`, which preserves the live role, the Service
-selectors and the replica count while applying everything else, or patch the
-object directly.
-
-Changing profile on a live cluster is two commands, because `oc apply` does not
-delete what the new overlay no longer defines:
+That is a working PostgreSQL behind `postgresql-rw`. To add a hot standby:
 
 ```bash
-# from the single instance to the full HA profile
-oc apply -k manifests/overlays/ha                 # 2 replicas, -ro, CronJob
-# from HA down to one pod
-oc apply -k manifests/overlays/single
-oc -n plain-pg delete svc postgresql-ro cronjob postgresql-failover
+oc -n plain-pg scale sts postgresql --replicas=2
 ```
 
-`plain-pg` is only the example namespace: change `metadata.name` in
-`manifests/base/namespace.yaml`, the `namespace:` field in each overlay, and `NS`
-in the scripts to deploy elsewhere.
+The new pod reads `PRIMARY_POD`, sees that it is not the primary, and runs
+`pg_basebackup` on its own. Scaling adds the standby only: for the `postgresql-ro`
+Service and automatic failover, apply `manifests/overlays/ha` instead (see
+[Profiles](#profiles)).
 
-Optional add-ons (each an overlay): **metrics** for Prometheus (`ha-metrics`),
-**TLS** with a service-ca certificate (`ha-tls`, `single-tls`) or your own
-(`ha-tls-byo`), and **external access** through a NodePort (`ha-external`).
-`ha-autoscale` adds the read HPA. See [operations.md](docs/operations.md).
+## Profiles
 
-The `scripts/` are for the test suite and day-2 operations, not the install:
-`deploy.sh` re-applies the overlay without reverting a failover;
-`verify-replication.sh`, `failover-manual.sh`, `backup-now.sh` and
-`reseed-replica.sh` are the day-2 helpers. Tear down with `./scripts/teardown.sh`
-(keeps the namespace) or `--all`. `make deploy|verify|lint|ci|test-quick|test`.
+An **overlay** is a kustomize directory that selects which objects are deployed; a
+**profile** is the choice of overlay. Every profile shares the same base and the
+same hardening.
+
+| Overlay | Pods | What you get |
+|---|---:|---|
+| `single` | 1 | one pod, the same hardening and backups |
+| `single-tls` | 1 | the same, serving TLS |
+| `ha` | 2 | a hot standby, `postgresql-ro`, automatic failover |
+| `ha-manual` | 2 | a hot standby, manual failover only |
+| `ha-metrics` | 2 | `ha` plus the Prometheus exporter |
+| `ha-tls` | 2 | `ha` plus TLS, certificate from service-ca |
+| `ha-tls-byo` | 2 | `ha` plus TLS, your own certificate |
+| `ha-external` | 2 | `ha` plus a NodePort on `postgresql-rw` |
+| `ha-autoscale` | 2 | `ha` plus the read HPA |
+
+The components under `manifests/components/` combine, so your own mix needs no new
+overlay: a six-line kustomization is enough (see
+[operations.md](docs/operations.md#overlays)).
+
+## How it works
+
+```text
+  clients
+    │
+    ├── writes ──▶ postgresql-rw ─────────────────────▶ postgresql-0   (primary)
+    │                                                        │
+    │                                            WAL streaming│
+    ├── reads  ──▶ postgresql-r ──┬──────────────────────────┘
+    │                             └──────────────────────▶ postgresql-1   (hot standby)
+    └── reads (one replica) ──▶ postgresql-ro ───────────▶ postgresql-1
+
+  postgresql-hl          headless Service: one DNS name per pod, which is how a
+                         standby finds the primary
+  CronJob postgresql-backup    pg_dump through -rw ──▶ PVC postgresql-backups
+  CronJob postgresql-failover  optional: promotes a standby when the primary dies
+
+  single profile: postgresql-0 only — no standby, no postgresql-ro, no failover
+  CronJob. After a failover in the HA profile either pod can be the primary.
+```
+
+`postgresql-rw` carries writes to the primary. `postgresql-r` spreads reads over
+every Ready pod. `postgresql-ro` pins one standby. Each pod keeps its data on its
+own `pgdata-postgresql-N` PVC.
+
+### How the primary is chosen
+
+`postgresql-0` is primary by convention, not by code. On startup each pod reads
+`PRIMARY_POD` from the `postgresql-role` ConfigMap and, if it matches its own name,
+starts as primary; otherwise it starts as a standby of the named pod. There is no
+leader election: the role is an explicit value, changed on purpose.
+
+The entrypoint brings `PGDATA` to the assigned role:
+
+| Desired | `PGDATA` holds | Action |
+|---|---|---|
+| primary | empty | `initdb` and user creation (the image does both) |
+| primary | standby data | delete `standby.signal` → promote |
+| standby | empty | `pg_basebackup` from the primary |
+| standby | primary data | wipe and re-seed |
+| standby | standby data | start and refresh `primary_conninfo` |
+
+A failover is changing that value and recreating the pods; a pod that comes back
+with the wrong role re-seeds or promotes itself on startup.
+
+## Why this exists
+
+One PostgreSQL server is a single point of failure and one server's worth of
+reads. PostgreSQL ships the fix — **streaming replication**, where the primary
+streams its WAL (write-ahead log) to a hot standby that answers read-only queries
+— but not the parts around it: deciding when to promote, keeping
+`primary_conninfo` current, and repointing clients.
+
+| Approach | Remaining work |
+|---|---|
+| PostgreSQL on two hosts | build the standby, promote on failure, re-seed the old primary, repoint clients |
+| The image in a plain StatefulSet | pods restart and reschedule, but nothing configures replication, picks the primary or repoints the Services |
+| An HA stack (CloudNativePG, Patroni, …) | more automation, and another system to run |
+
+This repository does that work with PostgreSQL's own replication and plain
+objects: a ConfigMap holds the role, the entrypoint configures each pod for it,
+reads scale through `postgresql-r`, and failover is a script or a CronJob.
+
+## Security
+
+Included in every profile:
+
+- **Non-root and `restricted`**: `runAsNonRoot`, `allowPrivilegeEscalation:
+  false`, all capabilities dropped, `seccompProfile: RuntimeDefault`; the pods run
+  under the `restricted` PodSecurity profile.
+- **A pinned image**: a Red Hat PostgreSQL image referenced by digest, from
+  `registry.redhat.io`.
+- **An ingress NetworkPolicy**: PostgreSQL on 5432 is reachable from pods in the
+  namespace only. It does not isolate the database pods from each other, and
+  egress is not restricted.
+- **Credentials outside git**: the Secret is created by hand (or materialized by
+  an ExternalSecret); the test tooling generates a throwaway one.
+
+Not enabled by default:
+
+- **TLS**: `ha-tls` (certificate issued by OpenShift's service-ca) or `ha-tls-byo`
+  (your own). The component also sets `PG_REQUIRE_TLS`, which turns the plaintext
+  rules in `pg_hba.conf` into `hostssl`, so a client that does not use TLS is
+  refused. See [TLS](docs/operations.md#tls).
+- **External access**: `ha-external` publishes the primary on a NodePort. Read
+  [External access](docs/operations.md#external-access-nodeport) first.
+- **RBAC for the failover CronJob**: the `automatic-failover` component adds a
+  ServiceAccount, Role and RoleBinding limited to pods and the role ConfigMap.
 
 ## Limits
 
@@ -165,36 +167,39 @@ The `scripts/` are for the test suite and day-2 operations, not the install:
 | Fencing is pod-level, not STONITH | a node partitioned from the API server can leave two primary processes |
 | Replication is asynchronous | a failover can lose the last unreplicated transactions |
 | Backups are logical (`pg_dump`), no WAL archiving | no point-in-time recovery; the copies live in the cluster |
-| No operator, no consensus | failover is manual or a best-effort CronJob, not automatic HA |
-| The single-instance profile | a restart, an upgrade or a node failure is downtime |
+| No operator, no consensus | failover is manual or an optional best-effort CronJob, not turnkey HA |
+| The single profile | a restart, an upgrade or a node failure is downtime |
 
-## Tests
+## Tests and evidence
 
-The suite runs against a real cluster: **32 tests, 317 checks, 0 failures**,
-covering deploy, the single-instance profile and the step to HA, replication,
-manual and automatic failover, persistence, backups, disaster recovery, scaling,
-the HPA, metrics, TLS and external access. The same suite has been run against the
-five images in [docs/supported-images.md](docs/supported-images.md). See
-[docs/tests.md](docs/tests.md).
+The suite runs against a real cluster: **32 tests, 317 checks**, covering deploy,
+the single-instance profile and the step to HA, replication, manual and automatic
+failover, persistence, backups, disaster recovery, scaling, the HPA, metrics, TLS
+and external access. The last full run: 32/32, 0 failures
+([transcript](docs/evidence/2026-10-16-full-suite.txt)).
 
-CI runs it too: on every push it lints, validates the manifests (Kubernetes
-schema + the AGENTS.md rules) and scans for secrets; **every night it creates a
-throwaway MicroShift cluster inside the runner** (MINC) and runs the suite
-against it, uploading the transcript.
+CI lints and validates the manifests on every push. A nightly job creates a
+throwaway MicroShift cluster inside the runner and runs the non-destructive
+`quick` subset (14 tests) against it. See [docs/tests.md](docs/tests.md).
+
+The bundled configuration uses PostgreSQL 18 on RHEL 10. Four other images passed
+the same suite but are not supported; results, transcripts and the procedure to
+switch are in [Supported images](docs/supported-images.md).
 
 ## Documentation
 
-- [docs/operations.md](docs/operations.md) — deploy, the single-instance profile, verify, connect, metrics, TLS
-- [docs/failover.md](docs/failover.md) — manual and automatic failover, limits
-- [docs/backups.md](docs/backups.md) — backups and restore
-- [docs/scaling.md](docs/scaling.md) — reads and the HPA
-- [docs/tests.md](docs/tests.md) — the test suite
-- [docs/supported-images.md](docs/supported-images.md) — the images that have been tested, and the supported one
-- [docs/evidence/README.md](docs/evidence/README.md) — raw output of suite runs
+- [operations.md](docs/operations.md) — deploy, profiles, changing the image, credentials, metrics, TLS, external access, recovery
+- [failover.md](docs/failover.md) — how the role moves, manual and automatic, and the guarantees it does not give
+- [backups.md](docs/backups.md) — `pg_dump`, restore, disaster recovery, and what they do not cover
+- [scaling.md](docs/scaling.md) — the Services and the read HPA
+- [supported-images.md](docs/supported-images.md) — what has been tested, what is supported, how to switch
+- [tests.md](docs/tests.md) — the suite, its requirements, MicroShift
+- [evidence/](docs/evidence/README.md) — raw transcripts of full runs
+- [AGENTS.md](AGENTS.md) — the rules this repository follows
 
 ## Layout
 
-```
+```text
 manifests/  base + components + overlays      scripts/  deploy, failover, backup, restore, ...
 tests/      suite t01..t32 + runner           tools/    static validation of embedded scripts
 ```
