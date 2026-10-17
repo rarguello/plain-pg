@@ -290,7 +290,7 @@ oc apply -k manifests/overlays/ha-small       # or your own overlay with the siz
 
 Until that is done, a pod that is recreated keeps the old template size. That is
 fine: the template is only what a *new* PVC would request, and an existing PVC
-keeps what it has. `t37` runs this whole path.
+keeps what it has. `t37` runs this path by hand. It is not part of the suite: every test there leaves the lab consistent, and growing a PVC cannot be undone.
 
 ## Settings and pg_hba
 

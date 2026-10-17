@@ -11,7 +11,7 @@ The suite runs against a real cluster (no mocks). Each test prints `[PASS]` or
 
 ## Coverage
 
-Last full run against a real cluster: **35/35 tests · 358 checks · 0 failures**
+Last full run against a real cluster: **36/36 tests · 358 checks · 0 failures**
 (transcript in [Evidence](#evidence)).
 
 | Test | What it proves | Checks | Result |
@@ -52,6 +52,10 @@ Last full run against a real cluster: **35/35 tests · 358 checks · 0 failures*
 | `t34_pvc_size` | The PVC size is chosen at deploy time (1Gi instead of 2Gi), and the default comes back | 14 | PASS |
 | `t35_port_forward` | A port-forward to `postgresql-rw` reaches the primary, as documented | 5 | PASS |
 | `t36_networkpolicy` | Another namespace is blocked, allowed by the documented `namespaceSelector`, and blocked again | 6 | PASS |
+
+One test is deliberately not here: `t37_pvc_grow` (growing an existing
+deployment's PVCs). Every test in the suite leaves the lab consistent, and growing
+a PVC cannot be undone, so it is run by hand: `./tests/run-all.sh t37`.
 
 Destructive tests change the cluster but leave it consistent: `t07`, `t08`, `t11`,
 `t13`, `t15`, `t16`, `t17`, `t23`, `t24`, `t26`, `t27`, `t28`, `t29`, `t30`, `t31`,
