@@ -5,8 +5,8 @@ metrics, TLS, external access, verification and recovery.
 
 ## Deploy
 
-A real install is just manifests: create the namespace and the credentials Secret
-by hand, then apply. The primary runs `initdb` and the replica `pg_basebackup` on
+An install is manifests only: create the namespace and the credentials Secret by
+hand, then apply. The primary runs `initdb` and the replica `pg_basebackup` on
 startup, so there is nothing else to run.
 
 ```bash
