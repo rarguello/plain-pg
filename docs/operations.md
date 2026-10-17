@@ -163,26 +163,36 @@ available here too, with `overlays/single-tls` (see [TLS](#tls), and `t32`).
 
 ## Credentials
 
-`postgresql-credentials` is never in git. Create it by hand before the apply; the
-test tooling generates a throwaway one. The command:
+`postgresql-credentials` is never in git, and it is an input: create it before the
+first apply. The six required keys are `POSTGRESQL_USER`, `POSTGRESQL_PASSWORD`,
+`POSTGRESQL_DATABASE`, `POSTGRESQL_ADMIN_PASSWORD`, `POSTGRESQL_MASTER_USER` and
+`POSTGRESQL_MASTER_PASSWORD`.
 
 ```bash
 oc -n plain-pg create secret generic postgresql-credentials \
-  --from-literal=POSTGRESQL_USER=app                --from-literal=POSTGRESQL_PASSWORD='<app-pw>' \
-  --from-literal=POSTGRESQL_DATABASE=appdb           --from-literal=POSTGRESQL_ADMIN_PASSWORD='<admin-pw>' \
-  --from-literal=POSTGRESQL_MASTER_USER=replicator   --from-literal=POSTGRESQL_MASTER_PASSWORD='<repl-pw>'
+  --from-literal=POSTGRESQL_USER=app \
+  --from-literal=POSTGRESQL_PASSWORD='<app-pw>' \
+  --from-literal=POSTGRESQL_DATABASE=appdb \
+  --from-literal=POSTGRESQL_ADMIN_PASSWORD='<admin-pw>' \
+  --from-literal=POSTGRESQL_MASTER_USER=replicator \
+  --from-literal=POSTGRESQL_MASTER_PASSWORD='<repl-pw>'
 ```
 
-Required keys: `POSTGRESQL_USER`, `POSTGRESQL_PASSWORD`, `POSTGRESQL_DATABASE`,
-`POSTGRESQL_ADMIN_PASSWORD`, `POSTGRESQL_MASTER_USER`, `POSTGRESQL_MASTER_PASSWORD`.
+To keep the values in a file instead, use a gitignored `envs` file with a
+`secretGenerator` in your own kustomization:
 
-Neither of these is shipped or tested here; they are integration options if you
-prefer not to create the Secret by hand:
+```yaml
+secretGenerator:
+  - name: postgresql-credentials
+    envs: [credentials.env]
+    options: {disableNameSuffixHash: true}
+```
 
-- a `secretGenerator` in your own kustomization (with
-  `options.disableNameSuffixHash: true`), reading a gitignored `envs` file; or
-- an `ExternalSecret` from the External Secrets Operator that materializes
-  `postgresql-credentials` from Vault/AWS/GCP/Azure.
+Or an `ExternalSecret` from the External Secrets Operator, materializing
+`postgresql-credentials` from Vault/AWS/GCP/Azure.
+
+The test tooling generates a throwaway Secret in gitignored `secrets/`
+(`scripts/generate-secret.sh`). That one is for the lab only.
 
 ## Scripts (test tooling)
 

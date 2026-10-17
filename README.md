@@ -28,15 +28,26 @@ digest.
 ```bash
 git clone https://github.com/rarguello/plain-pg.git && cd plain-pg
 
+# 1. the namespace
 oc apply -f manifests/base/namespace.yaml
-oc -n plain-pg create secret generic postgresql-credentials \
-  --from-literal=POSTGRESQL_USER=app        --from-literal=POSTGRESQL_PASSWORD='<app-pw>' \
-  --from-literal=POSTGRESQL_DATABASE=appdb  --from-literal=POSTGRESQL_ADMIN_PASSWORD='<admin-pw>' \
-  --from-literal=POSTGRESQL_MASTER_USER=replicator --from-literal=POSTGRESQL_MASTER_PASSWORD='<repl-pw>'
 
-oc apply -k manifests/overlays/single      # one pod
+# 2. the credentials, created by hand and never committed
+oc -n plain-pg create secret generic postgresql-credentials \
+  --from-literal=POSTGRESQL_USER=app \
+  --from-literal=POSTGRESQL_PASSWORD='<app-pw>' \
+  --from-literal=POSTGRESQL_DATABASE=appdb \
+  --from-literal=POSTGRESQL_ADMIN_PASSWORD='<admin-pw>' \
+  --from-literal=POSTGRESQL_MASTER_USER=replicator \
+  --from-literal=POSTGRESQL_MASTER_PASSWORD='<repl-pw>'
+
+# 3. one pod
+oc apply -k manifests/overlays/single
 oc -n plain-pg get pods                    # wait for 1/1 Ready
 ```
+
+If you would rather keep the values in a file than on the command line, use an
+`envs` file with a `secretGenerator`, or an `ExternalSecret`: see
+[Credentials](docs/operations.md#credentials).
 
 That is a working PostgreSQL behind `postgresql-rw`. To add a hot standby:
 
@@ -73,28 +84,15 @@ overlay: a six-line kustomization is enough (see
 
 ## How it works
 
-```text
-  clients
-    │
-    ├── writes ──▶ postgresql-rw ─────────────────────▶ postgresql-0   (primary)
-    │                                                        │
-    │                                            WAL streaming│
-    ├── reads  ──▶ postgresql-r ──┬──────────────────────────┘
-    │                             └──────────────────────▶ postgresql-1   (hot standby)
-    └── reads (one replica) ──▶ postgresql-ro ───────────▶ postgresql-1
-
-  postgresql-hl          headless Service: one DNS name per pod, which is how a
-                         standby finds the primary
-  CronJob postgresql-backup    pg_dump through -rw ──▶ PVC postgresql-backups
-  CronJob postgresql-failover  optional: promotes a standby when the primary dies
-
-  single profile: postgresql-0 only — no standby, no postgresql-ro, no failover
-  CronJob. After a failover in the HA profile either pod can be the primary.
-```
+![The HA profile: clients write through postgresql-rw to the primary and read
+through postgresql-r or postgresql-ro; the primary streams WAL to the hot standby;
+a headless Service gives each pod a DNS name; a CronJob writes pg_dump backups to
+a PVC, and an optional CronJob promotes a standby](docs/architecture.svg)
 
 `postgresql-rw` carries writes to the primary. `postgresql-r` spreads reads over
-every Ready pod. `postgresql-ro` pins one standby. Each pod keeps its data on its
-own `pgdata-postgresql-N` PVC.
+every Ready pod. `postgresql-ro` pins one standby. The primary streams its WAL to
+the standby, `postgresql-hl` gives each pod a DNS name so a standby can find the
+primary, and each pod keeps its data on its own `pgdata-postgresql-N` PVC.
 
 ### How the primary is chosen
 
@@ -196,12 +194,5 @@ switch are in [Supported images](docs/supported-images.md).
 - [tests.md](docs/tests.md) — the suite, its requirements, MicroShift
 - [evidence/](docs/evidence/README.md) — raw transcripts of full runs
 - [AGENTS.md](AGENTS.md) — the rules this repository follows
-
-## Layout
-
-```text
-manifests/  base + components + overlays      scripts/  deploy, failover, backup, restore, ...
-tests/      suite t01..t32 + runner           tools/    static validation of embedded scripts
-```
 
 MIT. See [LICENSE](LICENSE).

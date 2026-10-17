@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 596" width="980" height="596" role="img" aria-labelledby="title desc">
+  <title id="title">plain-pg: the HA profile</title>
+  <desc id="desc">Clients write through postgresql-rw to the primary (postgresql-0) and read through postgresql-r (every Ready pod) or postgresql-ro (one standby). The primary streams WAL to the hot standby postgresql-1. A headless Service gives each pod a DNS name, a CronJob writes pg_dump backups to a PVC, and an optional CronJob promotes a standby when the primary dies.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrowwal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0284c7"/>
+    </marker>
+    <style>
+      .box   { fill:#ffffff; stroke:#cbd5e1; stroke-width:1.5; rx:10 }
+      .tint  { fill:#eff6ff; stroke:#93c5fd }
+      .tint2 { fill:#f0fdfa; stroke:#5eead4 }
+      .soft  { fill:#f8fafc; stroke:#e2e8f0 }
+      .opt   { fill:#fffbeb; stroke:#fcd34d; stroke-dasharray:5 4 }
+      .t     { font-family:"Helvetica Neue",Helvetica,Arial,sans-serif; fill:#0f172a }
+      .name  { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; fill:#0f172a }
+      .role  { font-family:"Helvetica Neue",Helvetica,Arial,sans-serif; fill:#475569 }
+      .lab   { font-family:"Helvetica Neue",Helvetica,Arial,sans-serif; fill:#334155 }
+      .lead  { font-family:"Helvetica Neue",Helvetica,Arial,sans-serif; fill:#64748b }
+      .wal   { stroke:#0284c7; stroke-width:2.5; fill:none }
+      .ln    { stroke:#64748b; stroke-width:1.8; fill:none }
+      .dash  { stroke:#f59e0b; stroke-width:1.8; fill:none; stroke-dasharray:6 5 }
+    </style>
+  </defs>
+
+  <rect width="980" height="596" fill="#ffffff"/>
+  <text class="t" x="28" y="34" font-size="19" font-weight="600">plain-pg — HA profile</text>
+  <text class="lead" x="28" y="55" font-size="13">PostgreSQL on OpenShift, plain objects: no operator, no CRDs.</text>
+
+  <!-- clients -->
+  <rect class="box" x="28" y="92" width="140" height="66"/>
+  <text class="t" x="98" y="120" font-size="14" font-weight="600" text-anchor="middle">clients</text>
+  <text class="role" x="98" y="140" font-size="12" text-anchor="middle">app, psql, pg_dump</text>
+
+  <!-- write path -->
+  <path class="ln" d="M168 112 H 236" marker-end="url(#arrow)"/>
+  <text class="lab" x="176" y="104" font-size="12">writes</text>
+  <!-- read paths -->
+  <path class="ln" d="M168 132 H 200 V 178 H 236" marker-end="url(#arrow)"/>
+  <text class="lab" x="176" y="150" font-size="12">reads</text>
+  <path class="ln" d="M168 132 H 200 V 238 H 236" marker-end="url(#arrow)"/>
+  <text class="lab" x="176" y="264" font-size="12">reads</text>
+
+  <!-- services -->
+  <rect class="box" x="236" y="86" width="228" height="52"/>
+  <text class="name" x="248" y="108" font-size="13" font-weight="600">postgresql-rw</text>
+  <text class="role" x="248" y="126" font-size="12">writes: the primary</text>
+
+  <rect class="box" x="236" y="152" width="228" height="52"/>
+  <text class="name" x="248" y="174" font-size="13" font-weight="600">postgresql-r</text>
+  <text class="role" x="248" y="192" font-size="12">reads: every Ready pod</text>
+
+  <rect class="box" x="236" y="212" width="228" height="52"/>
+  <text class="name" x="248" y="234" font-size="13" font-weight="600">postgresql-ro</text>
+  <text class="role" x="248" y="252" font-size="12">reads: one standby</text>
+
+  <rect class="soft" x="236" y="288" width="228" height="52"/>
+  <text class="name" x="248" y="310" font-size="13" font-weight="600">postgresql-hl</text>
+  <text class="role" x="248" y="328" font-size="12">headless: one DNS name per pod</text>
+
+  <!-- services to pods -->
+  <path class="ln" d="M464 112 H 560" marker-end="url(#arrow)"/>
+  <path class="ln" d="M464 178 H 512 V 112 H 560" marker-end="url(#arrow)"/>
+  <path class="ln" d="M464 178 H 512 V 300 H 560" marker-end="url(#arrow)"/>
+  <path class="ln" d="M464 238 H 528 V 300 H 560" marker-end="url(#arrow)"/>
+
+  <!-- pods -->
+  <rect class="tint" x="560" y="76" width="392" height="80"/>
+  <text class="name" x="578" y="106" font-size="15" font-weight="700">postgresql-0</text>
+  <text class="role" x="578" y="126" font-size="12">PRIMARY — reads and writes</text>
+  <text class="lead" x="578" y="144" font-size="11">pgdata-postgresql-0 (PVC)</text>
+
+  <rect class="tint2" x="560" y="260" width="392" height="80"/>
+  <text class="name" x="578" y="290" font-size="15" font-weight="700">postgresql-1</text>
+  <text class="role" x="578" y="310" font-size="12">HOT STANDBY — reads only</text>
+  <text class="lead" x="578" y="328" font-size="11">pgdata-postgresql-1 (PVC)</text>
+
+  <!-- WAL -->
+  <path class="wal" d="M756 156 V 260" marker-end="url(#arrowwal)"/>
+  <text class="t" x="770" y="196" font-size="12" font-weight="600" fill="#0284c7">WAL</text>
+  <text class="t" x="770" y="212" font-size="12" font-weight="600" fill="#0284c7">streaming</text>
+  <text class="lead" x="770" y="232" font-size="11">asynchronous</text>
+
+  <!-- statefulset frame -->
+  <rect x="540" y="62" width="424" height="292" rx="12" fill="none" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text class="lead" x="552" y="56" font-size="12">StatefulSet postgresql (2 pods)</text>
+
+  <!-- backup -->
+  <rect class="soft" x="236" y="392" width="228" height="56"/>
+  <text class="name" x="248" y="415" font-size="13" font-weight="600">CronJob postgresql-backup</text>
+  <text class="role" x="248" y="433" font-size="12">daily pg_dump through -rw</text>
+  <path class="ln" d="M464 420 H 560" marker-end="url(#arrow)"/>
+  <rect class="box" x="560" y="392" width="228" height="56"/>
+  <text class="name" x="572" y="415" font-size="13" font-weight="600">PVC postgresql-backups</text>
+  <text class="role" x="572" y="433" font-size="12">dumps + globals, outside PGDATA</text>
+
+  <!-- failover (optional) -->
+  <rect class="opt" x="236" y="472" width="228" height="56"/>
+  <text class="name" x="248" y="495" font-size="13" font-weight="600">CronJob postgresql-failover</text>
+  <text class="role" x="248" y="513" font-size="12">optional, best effort</text>
+
+  <!-- legend / notes -->
+  <text class="lead" x="484" y="495" font-size="12">dashed = optional, enabled by an overlay</text>
+  <text class="lead" x="484" y="513" font-size="12">the failover CronJob promotes a standby when the primary dies</text>
+  <text class="lead" x="28" y="556" font-size="12">single profile: postgresql-0 only — no standby, no postgresql-ro, no failover CronJob</text>
+  <text class="lead" x="28" y="576" font-size="12">after a failover in the HA profile either pod can be the primary</text>
+</svg>
