@@ -1,0 +1,36 @@
+== ensuring the lab is deployed (scripts/deploy.sh)
+== restarting the pods so they match the manifests
+
+═══════════════════════════════════════════════════════════════════════════
+== t37_pvc_grow.sh
+═══════════════════════════════════════════════════════════════════════════
+### t37 growing an existing deployment
+  (patching the pgdata PVCs up to 3Gi)
+  [PASS] replication is up before the growth
+  [PASS] pgdata-postgresql-0 asks for 3Gi
+  [PASS] pgdata-postgresql-1 asks for 3Gi
+  [PASS] the filesystem of pgdata-postgresql-0 grew
+  [PASS] the pod was not recreated
+  [PASS] and the container did not restart
+  [PASS] the data survived the growth
+  [PASS] replication was not affected
+  [PASS] a claim without a volume refuses the change
+  (recreating the StatefulSet so the template matches)
+  [PASS] the two pods are Ready again
+  [PASS] the template now asks for the smaller size
+  [PASS] and the PVC kept its own size
+  [PASS] the data is still there after the restart
+  [PASS] the filesystem is still the bigger one
+  [PASS] replication is back
+  (back to the default profile)
+  [PASS] the two pods are Ready again
+  [PASS] the default template is back
+
+  ---- summary: PASS=17 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== SUMMARY  (202s)
+═══════════════════════════════════════════════════════════════════════════
+  PASS t37
+
+  RESULT: ALL OK

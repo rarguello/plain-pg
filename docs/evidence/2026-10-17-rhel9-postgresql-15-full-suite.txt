@@ -1,4 +1,5 @@
 == ensuring the lab is deployed (scripts/deploy.sh)
+== restarting the pods so they match the manifests
 
 ═══════════════════════════════════════════════════════════════════════════
 == t01_deploy.sh
@@ -61,8 +62,8 @@
   [PASS] the replica is in 'streaming' state
   [PASS] sync_state is async or sync
   [PASS] the replay lag is 0 bytes
-  [PASS] row 'repl-1792198278-27072' appears on the replica
-  [PASS] row 'repl-1792198278-27072' is on the primary
+  [PASS] row 'repl-1792273691-6389' appears on the replica
+  [PASS] row 'repl-1792273691-6389' is on the primary
   [PASS] the replica REJECTS writes (read-only)
   [PASS] the replica can read the replicated table
 
@@ -110,18 +111,18 @@
 == t06_persistence.sh
 ═══════════════════════════════════════════════════════════════════════════
 ### t06 persistence and restarts
-  [PASS] row 'persist-1792198378-22003' replicates
+  [PASS] row 'persist-1792273842-25350' replicates
   (restarting the replica postgresql-1)
   [PASS] the replica becomes Ready again
   [PASS] the replica keeps its PVC (same UID)
   [PASS] the replica did NOT re-seed (no 'wiping PGDATA' in logs)
   [PASS] the replica is still standby after restarting
-  [PASS] row 'persist-1792198378-22003' is still on the replica
+  [PASS] row 'persist-1792273842-25350' is still on the replica
   [PASS] replication resumes after restarting the replica
   (restarting the primary postgresql-0)
   [PASS] the primary becomes Ready again
   [PASS] the primary is still primary
-  [PASS] row 'persist-1792198378-22003' is still on the primary
+  [PASS] row 'persist-1792273842-25350' is still on the primary
   [PASS] replication resumes after restarting the primary
 
   ---- summary: PASS=11 FAIL=0 SKIP=0
@@ -130,14 +131,14 @@
 == t07_failover_manual.sh
 ═══════════════════════════════════════════════════════════════════════════
 ### t07 manual failover (round trip)
-  [PASS] row 'fo-1792198419-26600' replicates before the failover
+  [PASS] row 'fo-1792273891-7961' replicates before the failover
   (running scripts/failover-manual.sh postgresql-1)
 Failover: postgresql-0 (primary) -> postgresql-1 (replica)
 [0/5] Disabling AUTO_FAILOVER while the operation lasts
 [1/5] ConfigMap postgresql-role: PRIMARY_POD=postgresql-1
 [2/5] Services: -rw -> postgresql-1, -ro -> postgresql-0
 [3/5] Fencing of the ex-primary postgresql-0
-      deleting postgresql-0 (uid 31d47446) and waiting for its termination
+      deleting postgresql-0 (uid 55963a40) and waiting for its termination
       postgresql-0 recreated (new uid)
 [4/5] Recreating pod postgresql-1 so that it promotes
 [5/5] Waiting for postgresql-1 to become primary...
@@ -163,7 +164,7 @@ Failover: postgresql-1 (primary) -> postgresql-0 (replica)
 [1/5] ConfigMap postgresql-role: PRIMARY_POD=postgresql-0
 [2/5] Services: -rw -> postgresql-0, -ro -> postgresql-1
 [3/5] Fencing of the ex-primary postgresql-1
-      deleting postgresql-1 (uid 8059770c) and waiting for its termination
+      deleting postgresql-1 (uid fa60892e) and waiting for its termination
       postgresql-1 recreated (new uid)
 [4/5] Recreating pod postgresql-0 so that it promotes
 [5/5] Waiting for postgresql-0 to become primary...
@@ -198,7 +199,7 @@ Failover: postgresql-1 (primary) -> postgresql-0 (replica)
 [1/5] ConfigMap postgresql-role: PRIMARY_POD=postgresql-0
 [2/5] Services: -rw -> postgresql-0, -ro -> postgresql-1
 [3/5] Fencing of the ex-primary postgresql-1
-      deleting postgresql-1 (uid 595c79b0) and waiting for its termination
+      deleting postgresql-1 (uid 1015d442) and waiting for its termination
       postgresql-1 recreated (new uid)
 [4/5] Recreating pod postgresql-0 so that it promotes
 [5/5] Waiting for postgresql-0 to become primary...
@@ -279,7 +280,7 @@ Verify with: ./scripts/verify-replication.sh
   [PASS] the backup ends OK
   [PASS] the backup generated the globals file
   [PASS] the backup generated a dump
-  (restore of 20261017-005922-appdb.dump into a new database)
+  (restore of 20261017-215734-appdb.dump into a new database)
   [PASS] the restore ends OK
   [PASS] the restored backup contains the control row
   [PASS] the restore refuses to overwrite an existing database
@@ -342,7 +343,7 @@ Verify with: ./scripts/verify-replication.sh
   [PASS] postgresql-1 is primary
   [PASS] the 100 previous records survived
   (waiting for the writer)
-  confirmed before the failover: 23 | after: 213 | lost: 0
+  confirmed before the failover: 26 | after: 198 | lost: 0
   [PASS] what is lost is a contiguous suffix (no scattered divergence)
   [PASS] not all data confirmed before the failover was lost
   [PASS] exactly one pod is primary at the end
@@ -434,8 +435,8 @@ Verify with: ./scripts/verify-replication.sh
 ### t22 read load balancing (postgresql-r)
   [PASS] postgresql-r selects every DB pod
     distribution over 40 connections (ip count):
-      10.128.1.231 19
-      10.128.1.232 21
+      10.128.1.235 22
+      10.128.1.239 18
   [PASS] all instances answered at least one connection
   [PASS] no instance is starved (each got >= 4 of 40)
   [PASS] every instance returns the same replicated row
@@ -461,7 +462,7 @@ generating data (client-side)...
 100000 of 100000 tuples (100%) done (elapsed 0.03 s, remaining 0.00 s)
 vacuuming...
 creating primary keys...
-done in 0.20 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0.08 s, vacuum 0.03 s, primary keys 0.08 s).
+done in 0.19 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0.07 s, vacuum 0.03 s, primary keys 0.07 s).
   [PASS] the HPA grows the fleet under read load
     fleet grew to 3 pods (new: postgresql-2)
   [PASS] postgresql-2 becomes Ready
@@ -589,7 +590,7 @@ done in 0.20 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0
   [PASS] deploy.sh rebuilds the cluster
   [PASS] the two pods are Ready again
   [PASS] replication is active after the rebuild
-  (restoring 20261017-011749-appdb.dump into appdb with FORCE=1)
+  (restoring 20261017-222104-appdb.dump into appdb with FORCE=1)
   [PASS] the restore ends OK
   [PASS] the control row is back in the application database
   [PASS] the restored table is owned by the application user
@@ -647,7 +648,84 @@ done in 0.20 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0
   ---- summary: PASS=12 FAIL=0 SKIP=0
 
 ═══════════════════════════════════════════════════════════════════════════
-== SUMMARY  (1939s)
+== t33_settings.sh
+═══════════════════════════════════════════════════════════════════════════
+### t33 settings and pg_hba
+  (deploying the settings component with real values)
+  [PASS] the two pods are Ready again
+  [PASS] the setting is in effect (work_mem)
+  [PASS] postgresql.conf itself was not edited
+  [PASS] postgresql.auto.conf includes our settings file
+  [PASS] the extra rule is in pg_hba.conf
+  [PASS] it comes before the image's catch-all
+  [PASS] a remote connection is rejected by our rule
+  [PASS] the local connection still works
+  [PASS] replication is unaffected
+  (the documented example: replacing the image's md5 with scram-sha-256)
+  [PASS] the two pods are Ready again
+  [PASS] pg_hba_file_rules reports our rule as scram-sha-256
+  [PASS] a remote connection authenticates with it
+  (removing the component)
+  [PASS] the two pods are Ready again
+  [PASS] the setting is gone
+  [PASS] the extra pg_hba block is gone
+  [PASS] a remote connection works again
+
+  ---- summary: PASS=16 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t34_pvc_size.sh
+═══════════════════════════════════════════════════════════════════════════
+### t34 storage size
+  (a fresh deployment with a smaller size)
+  [PASS] deploying overlays/ha-small completes
+  [PASS] the two pods are Ready
+  [PASS] the StatefulSet asks for the smaller size
+  [PASS] pgdata-postgresql-0 was created with it
+  [PASS] pgdata-postgresql-1 was created with it
+  [PASS] the backups PVC was created with it
+  [PASS] the primary is up on it
+  [PASS] replication works
+  [PASS] a write works on the smaller volume
+  (back to the default profile)
+  [PASS] redeploying the default profile completes
+  [PASS] the two pods are Ready again
+  [PASS] the default size is back
+  [PASS] the backups PVC is back to the default
+  [PASS] replication is back
+
+  ---- summary: PASS=14 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t35_port_forward.sh
+═══════════════════════════════════════════════════════════════════════════
+### t35 port-forward to the primary
+  [PASS] the forwarded port accepts a connection
+  [PASS] it is still open a moment later
+  [PASS] the Service behind it is the primary
+  [PASS] and that pod answers as a primary
+  [PASS] the port is closed once the forward is stopped
+
+  ---- summary: PASS=5 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t36_networkpolicy.sh
+═══════════════════════════════════════════════════════════════════════════
+### t36 cross-namespace access
+  (a client namespace, and a pod that runs psql against the Service)
+  [PASS] the client namespace is usable
+  [PASS] the other namespace is blocked by default
+  [PASS] nothing reached the database
+  (opening it with the namespaceSelector from the docs)
+  [PASS] the same query completes once it is allowed
+  [PASS] and it returned a row
+  (removing the policy closes it again)
+  [PASS] the namespace is blocked again
+
+  ---- summary: PASS=6 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== SUMMARY  (2939s)
 ═══════════════════════════════════════════════════════════════════════════
   PASS t01
   PASS t02
@@ -681,5 +759,9 @@ done in 0.20 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0
   PASS t30
   PASS t31
   PASS t32
+  PASS t33
+  PASS t34
+  PASS t35
+  PASS t36
 
   RESULT: ALL OK

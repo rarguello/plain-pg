@@ -12,7 +12,7 @@ digest.
 |---|---|
 | Supported image | PostgreSQL 18 on a RHEL 10 container (`rhel10/postgresql-18`) |
 | Objects | StatefulSet, Services, ConfigMaps, CronJobs, NetworkPolicy, PVCs. No CRDs |
-| Verified by | 32 tests, 317 checks, against a real cluster ([evidence](docs/evidence/README.md)) |
+| Verified by | 36 tests, 358 checks, against a real cluster ([evidence](docs/evidence/README.md)) |
 
 ## Requirements
 
@@ -179,7 +179,7 @@ Not enabled by default:
 The suite runs against a real cluster: **36 tests, 358 checks**, covering deploy,
 the single-instance profile and the step to HA, replication, manual and automatic
 failover, persistence, backups, disaster recovery, scaling, the HPA, metrics, TLS
-and external access. The last full run: 32/32, 0 failures
+and external access. The last full run: 36/36, 0 failures
 ([transcript](docs/evidence/2026-10-17-full-suite.txt)).
 
 CI lints and validates the manifests on every push. A nightly job creates a

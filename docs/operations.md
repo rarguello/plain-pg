@@ -278,19 +278,41 @@ oc -n plain-pg get pvc -o custom-columns=\
 NAME:.metadata.name,SIZE:.spec.resources.requests.storage,CAPACITY:.status.capacity.storage
 ```
 
-A PVC only grows. There is no way to shrink one, so pick the size with care.
+A claim that has never been bound cannot be changed at all, not even upwards:
+
+```text
+The PersistentVolumeClaim "postgresql-backups" is invalid: spec: Forbidden: spec
+is immutable after creation except resources.requests and
+volumeAttributesClassName for bound claims
+```
+
+In this repository that is `postgresql-backups` until the first backup runs,
+because no pod has mounted it yet. A claim without a volume holds no data, so the
+way out is to delete it and apply again.
+
+A PVC only grows. There is no way to shrink one, so pick the size with care, and
+make the overlay agree: if the manifest still asks for the old size, the next
+`oc apply -k` tries to shrink the claim and the API rejects it.
 
 To make *new* pods get the bigger size as well, the template has to change, and
 that means recreating the StatefulSet. The pods restart and the PVCs stay:
 
 ```bash
 oc -n plain-pg delete statefulset postgresql --wait=true
-oc apply -k manifests/overlays/ha-small       # or your own overlay with the size
+oc apply -k manifests/overlays/ha        # the overlay that declares the new size
 ```
 
 Until that is done, a pod that is recreated keeps the old template size. That is
 fine: the template is only what a *new* PVC would request, and an existing PVC
-keeps what it has. `t37` runs this path by hand. It is not part of the suite: every test there leaves the lab consistent, and growing a PVC cannot be undone.
+keeps what it has. Going back to a smaller template needs the same delete: a
+running StatefulSet never accepts a change to `volumeClaimTemplates`, in either
+direction.
+
+`t37` runs this path by hand: it patches the pgdata claims, checks that the
+filesystem grew without a restart, checks that a claim without a volume refuses
+the change, and recreates the StatefulSet to prove that the template can change
+while the existing PVCs stay as they are. It is not part of the suite, because
+growing a PVC cannot be undone and the suite's tests all leave the lab consistent.
 
 ## Settings and pg_hba
 

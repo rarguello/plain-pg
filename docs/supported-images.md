@@ -11,18 +11,17 @@ suite, but they are not supported.
 | Image | PostgreSQL | Suite | Transcript |
 |---|---|---:|---|
 | `rhel10/postgresql-18` | 18 | 36/36 | [2026-10-17](evidence/2026-10-17-full-suite.txt) |
-| `rhel9/postgresql-18` | 18 | 32/32 | [2026-10-17](evidence/2026-10-17-rhel9-postgresql-18-full-suite.txt) |
-| `rhel9/postgresql-16` | 16 | 32/32 | [2026-10-17](evidence/2026-10-17-rhel9-postgresql-16-full-suite.txt) |
-| `rhel10/postgresql-16` | 16 | 32/32 | [2026-10-17](evidence/2026-10-17-rhel10-postgresql-16-full-suite.txt) |
-| `rhel9/postgresql-15` | 15 | 32/32 | [2026-10-17](evidence/2026-10-17-rhel9-postgresql-15-full-suite.txt) |
+| `rhel9/postgresql-18` | 18 | 36/36 | [2026-10-17](evidence/2026-10-17-rhel9-postgresql-18-full-suite.txt) |
+| `rhel9/postgresql-16` | 16 | 36/36 | [2026-10-17](evidence/2026-10-17-rhel9-postgresql-16-full-suite.txt) |
+| `rhel10/postgresql-16` | 16 | 36/36 | [2026-10-17](evidence/2026-10-17-rhel10-postgresql-16-full-suite.txt) |
+| `rhel9/postgresql-15` | 15 | 36/36 | [2026-10-17](evidence/2026-10-17-rhel9-postgresql-15-full-suite.txt) |
 
 Images published by Red Hat: RHEL 9 has PostgreSQL 13, 15, 16 and 18; RHEL 10 has
 16 and 18. There is no 14, 17 or 19. PostgreSQL 13 is end of life upstream and is
 not tested.
 
 Each row is one full run of `tests/run-all.sh` against a freshly deployed lab with
-that image. The four rows dated 2026-10-17 ran before `t33` existed, so they have
-one test less. The transcript is the evidence; a run is only counted when it reports
+that image. The transcript is the evidence; a run is only counted when it reports
 `RESULT: ALL OK`.
 
 A green run proves that a fresh install with that image works. It does not prove
