@@ -172,8 +172,12 @@ data:
       fi
 
       [ -f "$hba" ] || return 0
-      # Drop a previous block first, so running twice changes nothing.
-      sed -i "\|^${block}$|,\|^${block} end$|d" "$hba"
+      # Drop a previous block first, so running twice changes nothing. Only when
+      # the end marker is there: an incomplete block would make the range delete
+      # the rest of the file.
+      if grep -qF "${block} end" "$hba"; then
+        sed -i "\|^${block}$|,\|^${block} end$|d" "$hba"
+      fi
       if [ -s "$hbasrc" ] && grep -qvE '^[[:space:]]*(#.*)?$' "$hbasrc"; then
         local tmp
         tmp="$(mktemp)"

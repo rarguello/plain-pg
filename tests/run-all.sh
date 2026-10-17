@@ -24,6 +24,20 @@ if ! "$ROOT_DIR/scripts/deploy.sh" >"$DEPLOY_LOG" 2>&1; then
   exit 1
 fi
 
+# deploy.sh does not recreate pods (updateStrategy is OnDelete), so a lab left in
+# another shape by an interrupted run would still be running the old pods. Start
+# from pods that match the manifests.
+echo "== restarting the pods so they match the manifests"
+oc -n "${NAMESPACE:-plain-pg}" delete pod -l app.kubernetes.io/component=database \
+  --ignore-not-found >/dev/null 2>&1 || true
+for _ in $(seq 1 60); do
+  ready="$(oc -n "${NAMESPACE:-plain-pg}" get pods -l app.kubernetes.io/component=database \
+    -o jsonpath='{range .items[*]}{.status.containerStatuses[0].ready}{"\n"}{end}' 2>/dev/null \
+    | grep -c true || true)"
+  [ "${ready:-0}" -ge 2 ] && break
+  sleep 5
+done
+
 ALL=(t01 t02 t03 t04 t05 t06 t07 t08 t09 t10 t11 t12 t13 t14 t15 t16 t17 t18 t19 t20 t21 t22 t23 t24 t25 t26 t27 t28 t29 t30 t31 t32 t33)
 QUICK=(t01 t02 t03 t04 t05 t06 t09 t10 t12 t14 t18 t19 t21 t22)
 

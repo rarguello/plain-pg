@@ -49,13 +49,10 @@
   [PASS] the replica does NOT have recovery.signal
   [PASS] primary_conninfo points at postgresql-0
   [PASS] primary_conninfo uses the replication user
-  [FAIL] the primary sees 1 replica streaming (expected='1' got='0')
-  [FAIL] replica application_name (expected='walreceiver' got='')
+  [PASS] the primary sees 1 replica streaming
+  [PASS] replica application_name
 
-  ---- summary: PASS=9 FAIL=2 SKIP=0
-  ---- failures:
-        - the primary sees 1 replica streaming (expected='1' got='0')
-        - replica application_name (expected='walreceiver' got='')
+  ---- summary: PASS=11 FAIL=0 SKIP=0
 
 ═══════════════════════════════════════════════════════════════════════════
 == t03_replication.sh
@@ -64,8 +61,8 @@
   [PASS] the replica is in 'streaming' state
   [PASS] sync_state is async or sync
   [PASS] the replay lag is 0 bytes
-  [PASS] row 'repl-1792212133-31641' appears on the replica
-  [PASS] row 'repl-1792212133-31641' is on the primary
+  [PASS] row 'repl-1792213704-9965' appears on the replica
+  [PASS] row 'repl-1792213704-9965' is on the primary
   [PASS] the replica REJECTS writes (read-only)
   [PASS] the replica can read the replicated table
 
@@ -101,30 +98,32 @@
   [PASS] max_wal_senders >= 1 on postgresql-1 (=6)
   [PASS] user replicator exists
   [PASS] user replicator has the REPLICATION privilege
-  [PASS] pg_hba.conf allows replication connections
+  [FAIL] pg_hba.conf allows replication connections (does not contain 'host replication all all')
   [PASS] the app database (appdb) exists
   [PASS] the app user (app) exists
   [PASS] the app user authenticates correctly
   [PASS] postgresql.conf includes the image config
 
-  ---- summary: PASS=13 FAIL=0 SKIP=0
+  ---- summary: PASS=12 FAIL=1 SKIP=0
+  ---- failures:
+        - pg_hba.conf allows replication connections (does not contain 'host replication all all')
 
 ═══════════════════════════════════════════════════════════════════════════
 == t06_persistence.sh
 ═══════════════════════════════════════════════════════════════════════════
 ### t06 persistence and restarts
-  [PASS] row 'persist-1792212244-10769' replicates
+  [PASS] row 'persist-1792213805-29844' replicates
   (restarting the replica postgresql-1)
   [PASS] the replica becomes Ready again
   [PASS] the replica keeps its PVC (same UID)
   [PASS] the replica did NOT re-seed (no 'wiping PGDATA' in logs)
   [PASS] the replica is still standby after restarting
-  [PASS] row 'persist-1792212244-10769' is still on the replica
+  [PASS] row 'persist-1792213805-29844' is still on the replica
   [PASS] replication resumes after restarting the replica
   (restarting the primary postgresql-0)
   [PASS] the primary becomes Ready again
   [PASS] the primary is still primary
-  [PASS] row 'persist-1792212244-10769' is still on the primary
+  [PASS] row 'persist-1792213805-29844' is still on the primary
   [PASS] replication resumes after restarting the primary
 
   ---- summary: PASS=11 FAIL=0 SKIP=0
@@ -133,14 +132,14 @@
 == t07_failover_manual.sh
 ═══════════════════════════════════════════════════════════════════════════
 ### t07 manual failover (round trip)
-  [PASS] row 'fo-1792212299-25423' replicates before the failover
+  [PASS] row 'fo-1792213851-28582' replicates before the failover
   (running scripts/failover-manual.sh postgresql-1)
 Failover: postgresql-0 (primary) -> postgresql-1 (replica)
 [0/5] Disabling AUTO_FAILOVER while the operation lasts
 [1/5] ConfigMap postgresql-role: PRIMARY_POD=postgresql-1
 [2/5] Services: -rw -> postgresql-1, -ro -> postgresql-0
 [3/5] Fencing of the ex-primary postgresql-0
-      deleting postgresql-0 (uid 71b97da2) and waiting for its termination
+      deleting postgresql-0 (uid 16324473) and waiting for its termination
       postgresql-0 recreated (new uid)
 [4/5] Recreating pod postgresql-1 so that it promotes
 [5/5] Waiting for postgresql-1 to become primary...
@@ -166,7 +165,7 @@ Failover: postgresql-1 (primary) -> postgresql-0 (replica)
 [1/5] ConfigMap postgresql-role: PRIMARY_POD=postgresql-0
 [2/5] Services: -rw -> postgresql-0, -ro -> postgresql-1
 [3/5] Fencing of the ex-primary postgresql-1
-      deleting postgresql-1 (uid cee5dd4b) and waiting for its termination
+      deleting postgresql-1 (uid 35353fd6) and waiting for its termination
       postgresql-1 recreated (new uid)
 [4/5] Recreating pod postgresql-0 so that it promotes
 [5/5] Waiting for postgresql-0 to become primary...
@@ -201,7 +200,7 @@ Failover: postgresql-1 (primary) -> postgresql-0 (replica)
 [1/5] ConfigMap postgresql-role: PRIMARY_POD=postgresql-0
 [2/5] Services: -rw -> postgresql-0, -ro -> postgresql-1
 [3/5] Fencing of the ex-primary postgresql-1
-      deleting postgresql-1 (uid 83732c0c) and waiting for its termination
+      deleting postgresql-1 (uid fe6ccdea) and waiting for its termination
       postgresql-1 recreated (new uid)
 [4/5] Recreating pod postgresql-0 so that it promotes
 [5/5] Waiting for postgresql-0 to become primary...
@@ -282,7 +281,7 @@ Verify with: ./scripts/verify-replication.sh
   [PASS] the backup ends OK
   [PASS] the backup generated the globals file
   [PASS] the backup generated a dump
-  (restore of 20261017-045108-appdb.dump into a new database)
+  (restore of 20261017-051857-appdb.dump into a new database)
   [PASS] the restore ends OK
   [PASS] the restored backup contains the control row
   [PASS] the restore refuses to overwrite an existing database
@@ -345,7 +344,7 @@ Verify with: ./scripts/verify-replication.sh
   [PASS] postgresql-1 is primary
   [PASS] the 100 previous records survived
   (waiting for the writer)
-  confirmed before the failover: 24 | after: 211 | lost: 0
+  confirmed before the failover: 23 | after: 218 | lost: 0
   [PASS] what is lost is a contiguous suffix (no scattered divergence)
   [PASS] not all data confirmed before the failover was lost
   [PASS] exactly one pod is primary at the end
@@ -437,8 +436,8 @@ Verify with: ./scripts/verify-replication.sh
 ### t22 read load balancing (postgresql-r)
   [PASS] postgresql-r selects every DB pod
     distribution over 40 connections (ip count):
-      10.128.1.58 25
-      10.128.1.59 15
+      10.128.1.194 16
+      10.128.1.195 24
   [PASS] all instances answered at least one connection
   [PASS] no instance is starved (each got >= 4 of 40)
   [PASS] every instance returns the same replicated row
@@ -464,7 +463,7 @@ generating data (client-side)...
 100000 of 100000 tuples (100%) of pgbench_accounts done (elapsed 0.02 s, remaining 0.00 s)
 vacuuming...
 creating primary keys...
-done in 0.18 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0.06 s, vacuum 0.04 s, primary keys 0.06 s).
+done in 0.21 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0.08 s, vacuum 0.04 s, primary keys 0.08 s).
   [PASS] the HPA grows the fleet under read load
     fleet grew to 3 pods (new: postgresql-2)
   [PASS] postgresql-2 becomes Ready
@@ -526,20 +525,3 @@ done in 0.18 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0
   [PASS] a plaintext-only client is refused
 
   ---- summary: PASS=7 FAIL=0 SKIP=0
-
-═══════════════════════════════════════════════════════════════════════════
-== t27_tls_byo.sh
-═══════════════════════════════════════════════════════════════════════════
-### t27 TLS (bring your own certificate)
-  (generating a tiny PKI with openssl)
-  (deploying the bring-your-own overlay)
-  [PASS] the service-ca annotation is gone from postgresql-hl
-  (creating the Secret and the ConfigMap by hand)
-  (recreating the pods to mount our certificate)
-  [PASS] the two pods are Ready again
-  [PASS] PostgreSQL reports ssl=on
-  [PASS] the replication connection uses TLS
-  [PASS] a client verifying CA and hostname connects through -rw
-  [PASS] a plaintext-only client is refused
-
-  ---- summary: PASS=6 FAIL=0 SKIP=0
