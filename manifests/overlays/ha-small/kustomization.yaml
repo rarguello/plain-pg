@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# HA profile with a different storage size: 1Gi instead of the default 2Gi. Any
+# size works, bigger or smaller, as long as the StorageClass can provide it.
+#
+# This is the size the deployment is *created* with. The two PVCs are the
+# StatefulSet's volumeClaimTemplate (one per pod) and postgresql-backups, and
+# they are the only ones.
+#
+# Growing an existing deployment is a different operation: Kubernetes forbids
+# editing volumeClaimTemplates on a live StatefulSet, so the PVCs have to be
+# grown with a patch (if the StorageClass allows expansion) and the template
+# only takes effect on a fresh deployment. See docs/operations.md#storage-size.
+
+namespace: plain-pg
+
+resources:
+  - ../ha
+
+patches:
+  - target:
+      kind: StatefulSet
+      name: postgresql
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 1Gi
+  - target:
+      kind: PersistentVolumeClaim
+      name: postgresql-backups
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 1Gi

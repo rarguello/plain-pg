@@ -1,5 +1,8 @@
 name: ci
 
+permissions:
+  contents: read
+
 on:
   push:
     paths-ignore:
@@ -14,7 +17,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install tools
         run: |
@@ -33,7 +36,7 @@ jobs:
 
       - name: Render the overlays
         run: |
-          for o in ha ha-manual ha-autoscale ha-metrics ha-tls ha-tls-byo ha-external ha-settings single single-tls; do
+          for o in ha ha-manual ha-autoscale ha-metrics ha-tls ha-tls-byo ha-external ha-settings ha-small single single-tls; do
             kustomize build "manifests/overlays/$o" > "/tmp/$o.yaml"
           done
 
@@ -41,10 +44,10 @@ jobs:
         run: python3 tools/check-scripts.py /tmp/ha.yaml /tmp/ha-manual.yaml
 
       - name: Policies (AGENTS.md hard rules)
-        run: python3 tools/check-policies.py /tmp/ha.yaml /tmp/ha-manual.yaml /tmp/ha-autoscale.yaml /tmp/ha-metrics.yaml /tmp/ha-tls.yaml /tmp/ha-tls-byo.yaml /tmp/ha-external.yaml /tmp/single.yaml /tmp/single-tls.yaml /tmp/ha-settings.yaml
+        run: python3 tools/check-policies.py /tmp/ha.yaml /tmp/ha-manual.yaml /tmp/ha-autoscale.yaml /tmp/ha-metrics.yaml /tmp/ha-tls.yaml /tmp/ha-tls-byo.yaml /tmp/ha-external.yaml /tmp/single.yaml /tmp/single-tls.yaml /tmp/ha-settings.yaml /tmp/ha-small.yaml
 
       - name: Kubernetes schema (kubeconform)
-        run: kubeconform -summary -ignore-missing-schemas /tmp/ha.yaml /tmp/ha-manual.yaml /tmp/ha-autoscale.yaml /tmp/ha-metrics.yaml /tmp/ha-tls.yaml /tmp/ha-tls-byo.yaml /tmp/ha-external.yaml /tmp/single.yaml /tmp/single-tls.yaml /tmp/ha-settings.yaml
+        run: kubeconform -summary -ignore-missing-schemas /tmp/ha.yaml /tmp/ha-manual.yaml /tmp/ha-autoscale.yaml /tmp/ha-metrics.yaml /tmp/ha-tls.yaml /tmp/ha-tls-byo.yaml /tmp/ha-external.yaml /tmp/single.yaml /tmp/single-tls.yaml /tmp/ha-settings.yaml /tmp/ha-small.yaml
 
       - name: yamllint
         run: yamllint -f parsable manifests .github
@@ -52,10 +55,10 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Markdown structure
-        uses: DavidAnson/markdownlint-cli2-action@v24
+        uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24
 
       - name: Spelling
         run: |
@@ -64,7 +67,7 @@ jobs:
           "$HOME/venv/bin/codespell"
 
       - name: Links
-        uses: lycheeverse/lychee-action@v2
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2
         with:
           args: --config ./lychee.toml --no-progress "**/*.md"
 
@@ -77,9 +80,9 @@ jobs:
   secrets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v3
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

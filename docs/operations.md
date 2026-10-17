@@ -10,9 +10,10 @@ metrics, TLS, external access, verification and recovery.
 - [Deploy with your own values](#deploy-with-your-own-values): your namespace, StorageClass or image, without editing this repository
 - [Changing the PostgreSQL image](#changing-the-postgresql-image): platform or version
 - [Settings and pg_hba](#settings-and-pg_hba): your postgresql.conf settings and extra pg_hba rules
+- [Storage size](#storage-size): how big the PVCs are, chosen when you deploy
 - [Single instance](#single-instance-no-replica): one pod, and the step to HA
 - [Credentials](#credentials) · [Scripts](#scripts-test-tooling) · [Metrics](#metrics) · [TLS](#tls) · [External access](#external-access-nodeport)
-- [Verify and connect](#verify-and-connect) · [Frequent tasks](#frequent-tasks) · [Recovery](#recovery) · [Sharp edges](#sharp-edges)
+- [Verify and connect](#verify-and-connect) · [Populate the database from your machine](#populate-the-database-from-your-machine) · [Frequent tasks](#frequent-tasks) · [Recovery](#recovery) · [Sharp edges](#sharp-edges)
 
 ## Deploy
 
@@ -116,6 +117,18 @@ patches:
       - op: add
         path: /spec/storageClassName
         value: standard
+
+  # The same two PVCs, sized here instead of the default 2Gi. See Storage size.
+  - target: {kind: StatefulSet, name: postgresql}
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 5Gi
+  - target: {kind: PersistentVolumeClaim, name: postgresql-backups}
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 10Gi
 ```
 
 ```bash
@@ -214,6 +227,45 @@ To move to another platform or major version:
 `./scripts/test-image.sh rhel9/postgresql-16` performs steps 1 to 3 and then runs
 the whole test suite against the new image. Which images have been tested, and
 which one is supported, is in [supported-images.md](supported-images.md).
+
+## Storage size
+
+A deployment is created with a fixed size per PVC: 2Gi by default. There are only
+two, and both live in the manifests: the StatefulSet's `volumeClaimTemplates`
+(one PVC per pod, `pgdata-postgresql-N`) and `postgresql-backups`.
+
+`overlays/ha-small` is the same profile asking for 1Gi. Any size works, bigger or
+smaller, as long as the StorageClass can provide it:
+
+```yaml
+patches:
+  - target: {kind: StatefulSet, name: postgresql}
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 1Gi
+  - target: {kind: PersistentVolumeClaim, name: postgresql-backups}
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 1Gi
+```
+
+Copy those two patches into your own overlay and change the values.
+
+**Growing a deployment that already exists is a different operation.** Kubernetes
+forbids editing `volumeClaimTemplates` on a live StatefulSet:
+
+```text
+The StatefulSet "postgresql" is invalid: spec: Forbidden: updates to statefulset
+spec for fields other than 'replicas', 'ordinals', 'template', 'updateStrategy',
+'revisionHistoryLimit', 'persistentVolumeClaimRetentionPolicy' and 'minReadySeconds'
+```
+
+So the PVCs that exist have to be grown with a patch on each of them (the
+StorageClass needs `allowVolumeExpansion`, and the filesystem grows online), and
+the template only takes effect on a fresh deployment. That path is not covered
+here yet.
 
 ## Settings and pg_hba
 
@@ -401,6 +453,50 @@ and the entrypoint turns the image's plaintext `host` rules in `pg_hba.conf` int
 the component) to go back to offering TLS instead of requiring it. On a fresh
 install the first `initdb` does not pick TLS up: restart the pods once.
 
+## Let another namespace reach the database
+
+The NetworkPolicy lets pods in `plain-pg` in, and nothing else. An application in
+another namespace needs one more rule. NetworkPolicies are additive, so a second
+policy object is enough: the base one does not have to be edited.
+
+```yaml
+# in your own overlay
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgresql-allow-my-app
+  namespace: plain-pg
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/instance: postgresql
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        # Since Kubernetes 1.21 every namespace carries this label with its own
+        # name, so this selects it by name.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: my-app
+      ports:
+        - protocol: TCP
+          port: 5432
+```
+
+The application then reaches the Service by its full name; no port-forward, and no
+change to the Services:
+
+```text
+postgresql-rw.plain-pg.svc.cluster.local:5432     writes (the primary)
+postgresql-r.plain-pg.svc.cluster.local:5432      reads (every Ready pod)
+postgresql-ro.plain-pg.svc.cluster.local:5432     reads (one standby)
+```
+
+This one is not covered by the suite: it needs a second namespace, and the suite is
+not allowed to touch other namespaces (AGENTS.md, rule 4). It is the one procedure
+here that is documented without a test behind it.
+
 ## External access (NodePort)
 
 `overlays/ha-external` publishes the primary through a **NodePort** on
@@ -449,6 +545,45 @@ oc -n $NS exec -it postgresql-0 -- psql -h postgresql-rw -U app -d appdb   # wri
 oc -n $NS exec -it postgresql-1 -- psql -h postgresql-ro -U app -d appdb   # reads
 oc -n $NS exec -it postgresql-0 -- psql -h 127.0.0.1 -U postgres           # superuser
 ```
+
+## Populate the database from your machine
+
+`oc port-forward` is the way in without publishing anything: it forwards a local
+port to the Service, so your own `psql` talks to the primary.
+
+```bash
+# 1. forward a local port to the primary, and leave it running
+oc -n plain-pg port-forward svc/postgresql-rw 5432:5432
+
+# 2. the credentials live in the Secret, never in git
+export PGPASSWORD="$(oc -n plain-pg get secret postgresql-credentials \
+  -o jsonpath='{.data.POSTGRESQL_ADMIN_PASSWORD}' | base64 -d)"
+
+# 3. the app database and the app user already exist (the image created them);
+#    anything else is created as the admin
+psql -h 127.0.0.1 -U postgres -d postgres -c 'CREATE DATABASE reporting;'
+psql -h 127.0.0.1 -U postgres -d reporting -c 'GRANT ALL ON DATABASE reporting TO app;'
+```
+
+Load a schema and some rows from files, check, and leave:
+
+```bash
+psql -h 127.0.0.1 -U postgres -d reporting -f schema.sql
+psql -h 127.0.0.1 -U postgres -d reporting -c "\copy seed FROM 'seed.csv' CSV"
+psql -h 127.0.0.1 -U postgres -d reporting -c '\dt'
+psql -h 127.0.0.1 -U postgres -d reporting -c 'SELECT count(*) FROM sales;'
+# then: \q (or Ctrl-D), and stop the port-forward
+```
+
+Notes:
+
+- Write through `postgresql-rw`, the primary. To read, forward `postgresql-ro` (one
+  standby) or `postgresql-r` (every Ready pod) instead.
+- A large load should not travel through your machine: run it as a Job inside the
+  cluster, which is what `restore-backup.sh` does.
+- The application user cannot create databases or roles, by design (`t21` checks
+  it), so schema work goes through the admin user.
+- Prefer `~/.pgpass` to exporting `PGPASSWORD`: the shell keeps history.
 
 ## Frequent tasks
 

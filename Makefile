@@ -44,8 +44,9 @@ lint:
 	oc kustomize manifests/overlays/single > $(RENDERED).single.yaml
 	oc kustomize manifests/overlays/single-tls > $(RENDERED).single-tls.yaml
 	oc kustomize manifests/overlays/ha-settings > $(RENDERED).ha-settings.yaml
+	oc kustomize manifests/overlays/ha-small > $(RENDERED).ha-small.yaml
 	python3 tools/check-scripts.py $(RENDERED).ha.yaml $(RENDERED).ha-manual.yaml
-	python3 tools/check-policies.py $(RENDERED).ha.yaml $(RENDERED).ha-manual.yaml $(RENDERED).ha-autoscale.yaml $(RENDERED).ha-metrics.yaml $(RENDERED).ha-tls.yaml $(RENDERED).ha-tls-byo.yaml $(RENDERED).ha-external.yaml $(RENDERED).single.yaml $(RENDERED).single-tls.yaml $(RENDERED).ha-settings.yaml
+	python3 tools/check-policies.py $(RENDERED).ha.yaml $(RENDERED).ha-manual.yaml $(RENDERED).ha-autoscale.yaml $(RENDERED).ha-metrics.yaml $(RENDERED).ha-tls.yaml $(RENDERED).ha-tls-byo.yaml $(RENDERED).ha-external.yaml $(RENDERED).single.yaml $(RENDERED).single-tls.yaml $(RENDERED).ha-settings.yaml $(RENDERED).ha-small.yaml
 
 # The same checks CI runs, for the tools that are installed locally.
 ci: lint
