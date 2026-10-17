@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-settings
+  labels:
+    app.kubernetes.io/name: pg-settings
+    app.kubernetes.io/instance: plain-pg
+    app.kubernetes.io/part-of: plain-pg
+    app.kubernetes.io/component: settings
+data:
+  # Settings in postgresql.conf syntax, one per line. The entrypoint copies this
+  # file into PGDATA and includes it with include_if_exists, so postgresql.conf
+  # itself is never edited. They apply on the next pod start.
+  #
+  # For the handful of settings the image already exposes as environment
+  # variables (POSTGRESQL_SHARED_BUFFERS, POSTGRESQL_MAX_CONNECTIONS,
+  # POSTGRESQL_MAX_PREPARED_TRANSACTIONS, POSTGRESQL_EFFECTIVE_CACHE_SIZE,
+  # POSTGRESQL_LIBRARIES, POSTGRESQL_LOG_DESTINATION), use those instead.
+  settings.conf: |
+    # log_min_duration_statement = '500ms'
+    # work_mem = '16MB'
+    # idle_in_transaction_session_timeout = '60s'

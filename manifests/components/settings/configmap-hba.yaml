@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-hba
+  labels:
+    app.kubernetes.io/name: pg-settings
+    app.kubernetes.io/instance: plain-pg
+    app.kubernetes.io/part-of: plain-pg
+    app.kubernetes.io/component: settings
+data:
+  # Extra pg_hba.conf rules, one per line. The entrypoint inserts them before the
+  # image's catch-all rules (the ones whose address is `all`), and pg_hba is
+  # first-match, so these win. The local and 127.0.0.1 rules stay before them.
+  #
+  # The example: the image writes `host ... md5`, and PostgreSQL 18 deprecates
+  # md5. Uncommenting these two lines replaces it with scram-sha-256 for both
+  # clients and replication.
+  #
+  # `host` matches plaintext connections and `hostssl` only TLS ones. Use
+  # `hostssl` here if the deployment requires TLS (the TLS rewrite only touches
+  # the image's own catch-all lines).
+  extra.conf: |
+    # host all         all  all  scram-sha-256
+    # host replication all  all  scram-sha-256

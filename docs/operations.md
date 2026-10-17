@@ -9,6 +9,7 @@ metrics, TLS, external access, verification and recovery.
 - [Overlays](#overlays): the profiles, and the components they combine
 - [Deploy with your own values](#deploy-with-your-own-values): your namespace, StorageClass or image, without editing this repository
 - [Changing the PostgreSQL image](#changing-the-postgresql-image): platform or version
+- [Settings and pg_hba](#settings-and-pg_hba): your postgresql.conf settings and extra pg_hba rules
 - [Single instance](#single-instance-no-replica): one pod, and the step to HA
 - [Credentials](#credentials) · [Scripts](#scripts-test-tooling) · [Metrics](#metrics) · [TLS](#tls) · [External access](#external-access-nodeport)
 - [Verify and connect](#verify-and-connect) · [Frequent tasks](#frequent-tasks) · [Recovery](#recovery) · [Sharp edges](#sharp-edges)
@@ -213,6 +214,49 @@ To move to another platform or major version:
 `./scripts/test-image.sh rhel9/postgresql-16` performs steps 1 to 3 and then runs
 the whole test suite against the new image. Which images have been tested, and
 which one is supported, is in [supported-images.md](supported-images.md).
+
+## Settings and pg_hba
+
+`components/settings` (overlay `ha-settings`) applies your own `postgresql.conf`
+settings and extra `pg_hba.conf` rules. It edits neither file in `PGDATA`:
+`postgresql.conf` is never touched (the settings are pulled in from
+`postgresql.auto.conf`), and the `pg_hba` rules are inserted as a marked block
+before the image's catch-all rules, which is where they can take effect, because
+`pg_hba.conf` is first match.
+
+Edit the two ConfigMaps of the component:
+
+```yaml
+# postgresql-settings, key settings.conf
+work_mem = '16MB'
+log_min_duration_statement = '500ms'
+```
+
+```yaml
+# postgresql-hba, key extra.conf. The image writes `host ... md5`, and
+# PostgreSQL 18 deprecates md5: this replaces it for clients and replication.
+host all         all  all  scram-sha-256
+host replication all  all  scram-sha-256
+```
+
+`host` matches plaintext connections and `hostssl` only TLS ones: use `hostssl`
+if the deployment requires TLS (the TLS rewrite only touches the image's own
+catch-all lines).
+
+Then apply the overlay and recreate the pods (`updateStrategy` is `OnDelete`).
+Removing the component removes both on the next start. Write `hostssl` in your
+rules if they must require TLS: the TLS rewrite only touches the image's catch-all
+lines.
+
+Two alternatives:
+
+- The image already exposes a few settings as environment variables
+  (`POSTGRESQL_SHARED_BUFFERS`, `POSTGRESQL_MAX_CONNECTIONS`,
+  `POSTGRESQL_MAX_PREPARED_TRANSACTIONS`, `POSTGRESQL_EFFECTIVE_CACHE_SIZE`,
+  `POSTGRESQL_LIBRARIES`, `POSTGRESQL_LOG_DESTINATION`). Set those in the
+  StatefulSet instead: no component needed.
+- `ALTER SYSTEM SET ...` also works (it writes `postgresql.auto.conf`), but it
+  lives in the PVC and not in git.
 
 ## Single instance (no replica)
 

@@ -142,6 +142,55 @@ data:
       fi
     }
 
+    # Settings: components/settings mounts two ConfigMaps. The file in
+    # /etc/plain-pg/settings is copied into PGDATA and included with
+    # include_if_exists (postgresql.conf is never edited), and the lines in
+    # /etc/plain-pg/hba are inserted into pg_hba.conf before the image's
+    # catch-all rules, which is where they can win (pg_hba is first match).
+    # Removing the component removes both on the next start.
+    ensure_settings() {
+      local src="/etc/plain-pg/settings/settings.conf"
+      local conf="$PGDATA/plain-pg-settings.conf"
+      local hbasrc="/etc/plain-pg/hba/extra.conf"
+      local hba="$PGDATA/pg_hba.conf"
+      local auto="$PGDATA/postgresql.auto.conf"
+      local marker="# plain-pg: settings include"
+      local block="# plain-pg: extra pg_hba rules"
+
+      if [ -f "$src" ]; then
+        cp -f "$src" "$conf"
+        log "settings applied (from /etc/plain-pg/settings)"
+      else
+        rm -f "$conf"
+      fi
+      if ! grep -qF "$marker" "$auto" 2>/dev/null; then
+        {
+          echo ""
+          echo "$marker"
+          echo "include_if_exists '$conf'"
+        } >> "$auto"
+      fi
+
+      [ -f "$hba" ] || return 0
+      # Drop a previous block first, so running twice changes nothing.
+      sed -i "\|^${block}$|,\|^${block} end$|d" "$hba"
+      if [ -s "$hbasrc" ] && grep -qvE '^[[:space:]]*(#.*)?$' "$hbasrc"; then
+        local tmp
+        tmp="$(mktemp)"
+        awk -v block="$block" -v src="$hbasrc" '
+          BEGIN { while ((getline l < src) > 0) body = body l "\n" }
+          !done && /^[[:space:]]*(host|hostssl|hostnossl)[[:space:]]/ && $(NF-1) == "all" {
+            printf "%s\n%s%s end\n", block, body, block; done = 1
+          }
+          { print }
+          END { if (!done) printf "%s\n%s%s end\n", block, body, block }
+        ' "$hba" > "$tmp"
+        cat "$tmp" > "$hba"
+        rm -f "$tmp"
+        log "extra pg_hba rules applied"
+      fi
+    }
+
     wait_for_primary() {
       local tries=0 max="${WAIT_PRIMARY_RETRIES:-120}"
       while [ "$tries" -lt "$max" ]; do
@@ -249,6 +298,7 @@ data:
       generate_postgresql_recovery_config   # primary_conninfo -> current primary
       ensure_recovery_include
       ensure_tls_config
+      ensure_settings
       touch "$PGDATA/standby.signal"
 
       log "starting as REPLICA (hot standby)"
@@ -269,6 +319,7 @@ data:
       if [ -f "$PGDATA/PG_VERSION" ]; then
         ensure_recovery_include
         ensure_tls_config
+        ensure_settings
       else
         log "PGDATA empty: run-postgresql will run initdb and create users"
       fi

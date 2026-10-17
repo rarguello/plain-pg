@@ -1,0 +1,49 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Optional component: apply your own PostgreSQL settings and pg_hba rules without
+# editing postgresql.conf.
+#
+#   configmap-settings.yaml   settings in postgresql.conf syntax. The entrypoint
+#                             copies them into PGDATA and includes the file, so
+#                             postgresql.conf is never edited.
+#   configmap-hba.yaml        extra pg_hba.conf rules, inserted before the image's
+#                             catch-all rules, so they win (pg_hba is first match).
+#                             That is how you replace the image's md5 with
+#                             scram-sha-256, for example.
+#
+# Both are mounted read-only and applied on startup. Removing the component (and
+# recreating the pods) removes them again.
+#
+# Write `hostssl` in your pg_hba rules if they must require TLS: the entrypoint's
+# TLS rewrite only touches the image's two catch-all lines.
+
+resources:
+  - configmap-settings.yaml
+  - configmap-hba.yaml
+
+patches:
+  - target:
+      kind: StatefulSet
+      name: postgresql
+    patch: |-
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value:
+          name: settings
+          configMap:
+            name: postgresql-settings
+            defaultMode: 0644
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value:
+          name: hba-extra
+          configMap:
+            name: postgresql-hba
+            defaultMode: 0644
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: {name: settings, mountPath: /etc/plain-pg/settings, readOnly: true}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: {name: hba-extra, mountPath: /etc/plain-pg/hba, readOnly: true}
