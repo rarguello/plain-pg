@@ -1,4 +1,4 @@
-# AGENTS.md — rules for `plain-pg`
+# AGENTS.md: rules for `plain-pg`
 
 Guidance for any agent (OpenCode, Codex) or person working in this repo.
 

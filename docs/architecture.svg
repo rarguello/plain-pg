@@ -27,7 +27,7 @@
   </defs>
 
   <rect width="980" height="596" fill="#ffffff"/>
-  <text class="t" x="28" y="34" font-size="19" font-weight="600">plain-pg — HA profile</text>
+  <text class="t" x="28" y="34" font-size="19" font-weight="600">plain-pg: HA profile</text>
   <text class="lead" x="28" y="55" font-size="13">PostgreSQL on OpenShift, plain objects: no operator, no CRDs.</text>
 
   <!-- clients -->
@@ -70,12 +70,12 @@
   <!-- pods -->
   <rect class="tint" x="560" y="76" width="392" height="80"/>
   <text class="name" x="578" y="106" font-size="15" font-weight="700">postgresql-0</text>
-  <text class="role" x="578" y="126" font-size="12">PRIMARY — reads and writes</text>
+  <text class="role" x="578" y="126" font-size="12">PRIMARY, reads and writes</text>
   <text class="lead" x="578" y="144" font-size="11">pgdata-postgresql-0 (PVC)</text>
 
   <rect class="tint2" x="560" y="260" width="392" height="80"/>
   <text class="name" x="578" y="290" font-size="15" font-weight="700">postgresql-1</text>
-  <text class="role" x="578" y="310" font-size="12">HOT STANDBY — reads only</text>
+  <text class="role" x="578" y="310" font-size="12">HOT STANDBY, reads only</text>
   <text class="lead" x="578" y="328" font-size="11">pgdata-postgresql-1 (PVC)</text>
 
   <!-- WAL -->
@@ -105,6 +105,6 @@
   <!-- legend / notes -->
   <text class="lead" x="484" y="495" font-size="12">dashed = optional, enabled by an overlay</text>
   <text class="lead" x="484" y="513" font-size="12">the failover CronJob promotes a standby when the primary dies</text>
-  <text class="lead" x="28" y="556" font-size="12">single profile: postgresql-0 only — no standby, no postgresql-ro, no failover CronJob</text>
+  <text class="lead" x="28" y="556" font-size="12">single profile: postgresql-0 only, no standby, no postgresql-ro, no failover CronJob</text>
   <text class="lead" x="28" y="576" font-size="12">after a failover in the HA profile either pod can be the primary</text>
 </svg>

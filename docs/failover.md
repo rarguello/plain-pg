@@ -5,7 +5,7 @@ Promoting a standby means changing that value and recreating pods.
 
 Two terms used below. **Fencing** is forcing the old primary out so that two
 primaries cannot coexist; here it is pod-level, and it verifies the Kubernetes pod
-object, not that the PostgreSQL process died — it is not STONITH (node power-off).
+object, not that the PostgreSQL process died. It is not STONITH (node power-off).
 A node partitioned from the API server can therefore leave two primary processes,
 which is **split-brain**.
 
@@ -72,7 +72,7 @@ Read these before relying on automatic failover.
 |---|---|---|
 | The **node** of the primary is partitioned from the API server | pod-level fencing can declare a primary dead whose process is still running; two primaries may remain (split-brain) | enable node-level isolation (for example `MachineHealthCheck` + a fence agent) before trusting automatic failover, or keep it disabled |
 | Replication is asynchronous | a failover can lose the last unreplicated transactions; the loss is not bounded by the design | accept it, or enable synchronous replication (out of scope here) |
-| Detection is by timeout, not consensus | a slow primary can be declared down too early | keep `FAILOVER_GRACE_SECONDS` conservative (120–300 s) |
+| Detection is by timeout, not consensus | a slow primary can be declared down too early | keep `FAILOVER_GRACE_SECONDS` conservative (120-300 s) |
 | A pod restarts between declaring the new role and finishing fencing | without a guard, the candidate could promote or the ex-primary could wipe and re-seed its PGDATA before isolation is confirmed | guarded: `FAILOVER_GUARD` makes the candidate wait, and a re-seeding pod waits until the target answers as a primary before it wipes anything; still verify a single primary after any failover |
 | Promotion does not check the replay position | a reachable but stale standby can be promoted | check the standby's replay position by hand before promoting if the loss must be bounded |
 | Manual, automatic and `oc apply -k` are not mutually exclusive | interleaved writes to the role and the Services can clobber each other (only the ConfigMap patch uses `resourceVersion`) | run one operator at a time: no manual failover during a deploy or while the CronJob is acting |

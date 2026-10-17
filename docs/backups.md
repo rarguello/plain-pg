@@ -24,8 +24,8 @@ the data PVC, so they survive a rebuild of the database.
 oc -n plain-pg exec <job-pod> -- ls -lh /backups
 ```
 
-`restore-backup.sh` restores the dump into a **new** database — it refuses to
-overwrite an existing one or to target the app database — and lists the tables.
+`restore-backup.sh` restores the dump into a **new** database (it refuses to
+overwrite an existing one or to target the app database) and lists the tables.
 That is how the test suite checks a backup without touching production
 (`tests/t12_backup.sh`). The `-globals.sql` file holds roles and users and is
 restored by hand (`psql -f <file>-globals.sql`).

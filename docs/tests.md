@@ -84,8 +84,8 @@ the scripts create.
   creates it by hand; see `operations.md`).
 - Without a cluster, `make lint` runs shellcheck, renders the nine overlays, and
   validates the embedded scripts (`tools/check-scripts.py`) and the AGENTS.md hard
-  rules — pinned Red Hat image, no operators, namespace, auxiliary-pod labels,
-  PodSecurity — via `tools/check-policies.py`. CI (`.github/workflows/ci.yml`)
+  rules (pinned Red Hat image, no operators, namespace, auxiliary-pod labels,
+  PodSecurity) via `tools/check-policies.py`. CI (`.github/workflows/ci.yml`)
   adds kubeconform, yamllint, markdownlint, codespell, lychee, actionlint and
   gitleaks.
 

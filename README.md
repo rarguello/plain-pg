@@ -11,7 +11,7 @@ digest.
 | | |
 |---|---|
 | Supported image | PostgreSQL 18 on a RHEL 10 container (`rhel10/postgresql-18`) |
-| Objects | StatefulSet, Services, ConfigMaps, CronJobs, NetworkPolicy, PVCs — no CRDs |
+| Objects | StatefulSet, Services, ConfigMaps, CronJobs, NetworkPolicy, PVCs. No CRDs |
 | Verified by | 32 tests, 317 checks, against a real cluster ([evidence](docs/evidence/README.md)) |
 
 ## Requirements
@@ -19,7 +19,7 @@ digest.
 - `oc` logged in, with permission to create the namespace and the objects in it.
 - A default StorageClass: the StatefulSet creates its PVCs, and they are not
   deleted when it is.
-- The credentials Secret, created by hand before the first apply — the exact
+- The credentials Secret, created by hand before the first apply; the exact
   command is in [Credentials](docs/operations.md#credentials).
 - Pull access to `registry.redhat.io` from the nodes (a Red Hat pull secret).
 
@@ -117,10 +117,10 @@ with the wrong role re-seeds or promotes itself on startup.
 ## Why this exists
 
 One PostgreSQL server is a single point of failure and one server's worth of
-reads. PostgreSQL ships the fix — **streaming replication**, where the primary
-streams its WAL (write-ahead log) to a hot standby that answers read-only queries
-— but not the parts around it: deciding when to promote, keeping
-`primary_conninfo` current, and repointing clients.
+reads. PostgreSQL ships the fix: **streaming replication**, where the primary
+streams its WAL (write-ahead log) to a hot standby that answers read-only
+queries. What it does not ship are the parts around it: deciding when to promote,
+keeping `primary_conninfo` current, and repointing clients.
 
 | Approach | Remaining work |
 |---|---|
@@ -186,13 +186,13 @@ switch are in [Supported images](docs/supported-images.md).
 
 ## Documentation
 
-- [operations.md](docs/operations.md) — deploy, profiles, changing the image, credentials, metrics, TLS, external access, recovery
-- [failover.md](docs/failover.md) — how the role moves, manual and automatic, and the guarantees it does not give
-- [backups.md](docs/backups.md) — `pg_dump`, restore, disaster recovery, and what they do not cover
-- [scaling.md](docs/scaling.md) — the Services and the read HPA
-- [supported-images.md](docs/supported-images.md) — what has been tested, what is supported, how to switch
-- [tests.md](docs/tests.md) — the suite, its requirements, MicroShift
-- [evidence/](docs/evidence/README.md) — raw transcripts of full runs
-- [AGENTS.md](AGENTS.md) — the rules this repository follows
+- [operations.md](docs/operations.md): deploy, profiles, changing the image, credentials, metrics, TLS, external access, recovery
+- [failover.md](docs/failover.md): how the role moves, manual and automatic, and the guarantees it does not give
+- [backups.md](docs/backups.md): `pg_dump`, restore, disaster recovery, and what they do not cover
+- [scaling.md](docs/scaling.md): the Services and the read HPA
+- [supported-images.md](docs/supported-images.md): what has been tested, what is supported, how to switch
+- [tests.md](docs/tests.md): the suite, its requirements, MicroShift
+- [evidence/](docs/evidence/README.md): raw transcripts of full runs
+- [AGENTS.md](AGENTS.md): the rules this repository follows
 
 MIT. See [LICENSE](LICENSE).

@@ -5,10 +5,10 @@ metrics, TLS, external access, verification and recovery.
 
 ## Contents
 
-- [Deploy](#deploy) — a fresh install, and what re-applying does
-- [Overlays](#overlays) — the profiles, and the components they combine
-- [Changing the PostgreSQL image](#changing-the-postgresql-image) — platform or version
-- [Single instance](#single-instance-no-replica) — one pod, and the step to HA
+- [Deploy](#deploy): a fresh install, and what re-applying does
+- [Overlays](#overlays): the profiles, and the components they combine
+- [Changing the PostgreSQL image](#changing-the-postgresql-image): platform or version
+- [Single instance](#single-instance-no-replica): one pod, and the step to HA
 - [Credentials](#credentials) · [Scripts](#scripts-test-tooling) · [Metrics](#metrics) · [TLS](#tls) · [External access](#external-access-nodeport)
 - [Verify and connect](#verify-and-connect) · [Frequent tasks](#frequent-tasks) · [Recovery](#recovery) · [Sharp edges](#sharp-edges)
 
@@ -26,8 +26,8 @@ oc -n plain-pg get pods      # wait for 2/2 Ready
 ```
 
 Re-applying the overlay on a live cluster **resets** `PRIMARY_POD`, the
-`-rw`/`-ro` selectors and `spec.replicas` — it would revert a failover and fight an
-HPA. To change something live, patch that object; to return to the initial primary,
+`-rw`/`-ro` selectors and `spec.replicas`. It would revert a failover and fight
+an HPA. To change something live, patch that object; to return to the initial primary,
 `./scripts/failover-manual.sh postgresql-0`.
 
 For manual failover only (no failover CronJob), apply
@@ -42,8 +42,8 @@ example that combines them.
 | Overlay | Pods | Adds | Use it when |
 |---|---:|---|---|
 | `ha` | 2 | automatic failover (the CronJob) | default; `scripts/deploy.sh` applies it |
-| `ha-manual` | 2 | — | you promote by hand only |
-| `single` | 1 | — | you do not want a replica |
+| `ha-manual` | 2 | none | you promote by hand only |
+| `single` | 1 | none | you do not want a replica |
 | `ha-metrics` | 2 | the `postgres_exporter` | Prometheus scrapes PostgreSQL |
 | `ha-tls` | 2 | TLS, certificate from service-ca | clients must encrypt |
 | `ha-tls-byo` | 2 | TLS, your own certificate | you have your own PKI |
@@ -51,8 +51,8 @@ example that combines them.
 | `ha-autoscale` | 2 | the read HPA | reads must scale |
 | `single-tls` | 1 | TLS, certificate from service-ca | one pod, encrypted |
 
-The components are meant to be combined, so your own mix needs no new overlay —
-a kustomization of your own is enough:
+The components are meant to be combined, so your own mix needs no new overlay. A
+kustomization of your own is enough:
 
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -145,7 +145,7 @@ oc -n plain-pg scale sts postgresql --replicas=2
 
 Scaling back down removes the highest ordinal; the primary keeps running and its
 data. What the scale alone does **not** give you is the `postgresql-ro` Service
-and the failover CronJob — apply `manifests/overlays/ha` for those (it also sets
+and the failover CronJob. Apply `manifests/overlays/ha` for those (it also sets
 `AUTO_FAILOVER=true`).
 
 `oc apply` does not delete objects that the new overlay no longer defines, so
@@ -238,12 +238,12 @@ oc -n plain-pg patch deploy postgresql-metrics --type merge -p \
 only when it is there (`ssl=on`, plus the CA for verification). Two components
 provide the certificate:
 
-- **`components/tls-service-ca`** — OpenShift's **service-ca** issues it for
+- **`components/tls-service-ca`**: OpenShift's **service-ca** issues it for
   `postgresql-hl` into the Secret `postgresql-tls` and injects the CA into
   `postgresql-tls-ca`. Nothing is stored in git. Used by `ha-tls` (HA) and
   `single-tls` (one pod).
-- **`overlays/ha-tls-byo`** — **your own certificate**: create the two objects,
-  apply the overlay and recreate the pods:
+- **`overlays/ha-tls-byo`** (your own certificate): create the two objects, apply
+  the overlay and recreate the pods:
 
 ```bash
 oc -n plain-pg create secret tls postgresql-tls --cert=tls.crt --key=tls.key

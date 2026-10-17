@@ -56,4 +56,4 @@ The mechanism this repository uses is stable from PostgreSQL 12 on:
 | 15 | `PUBLIC` lost `CREATE` on the `public` schema | the restore runs as the application user |
 | 16 | `promote_trigger_file` removed | not used |
 | 17 | `pg_basebackup --incremental` added | not used; re-seeds are full |
-| 18 | data checksums enabled by default; MD5 deprecated | 13–17 clusters have no checksums |
+| 18 | data checksums enabled by default; MD5 deprecated | 13-17 clusters have no checksums |
