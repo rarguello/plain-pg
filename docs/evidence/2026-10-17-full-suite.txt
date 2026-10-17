@@ -512,3 +512,133 @@ done in 0.18 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0
 == t26_tls.sh
 ═══════════════════════════════════════════════════════════════════════════
 ### t26 TLS (service-ca)
+  (deploying the tls component)
+  [PASS] the service-ca issues the certificate
+  [PASS] the CA bundle is injected into the ConfigMap
+  (recreating the pods to mount the certificate)
+  [PASS] the two pods are Ready again
+  [PASS] PostgreSQL reports ssl=on
+  [PASS] the replication connection uses TLS
+  [PASS] a client that verifies the CA connects through -rw
+  [PASS] a plaintext-only client is refused
+
+  ---- summary: PASS=7 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t27_tls_byo.sh
+═══════════════════════════════════════════════════════════════════════════
+### t27 TLS (bring your own certificate)
+  (generating a tiny PKI with openssl)
+  (deploying the bring-your-own overlay)
+  [PASS] the service-ca annotation is gone from postgresql-hl
+  (creating the Secret and the ConfigMap by hand)
+  (recreating the pods to mount our certificate)
+  [PASS] the two pods are Ready again
+  [PASS] PostgreSQL reports ssl=on
+  [PASS] the replication connection uses TLS
+  [PASS] a client verifying CA and hostname connects through -rw
+  [PASS] a plaintext-only client is refused
+
+  ---- summary: PASS=6 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t28_external.sh
+═══════════════════════════════════════════════════════════════════════════
+### t28 external access (NodePort)
+  [PASS] the node has an address
+  (deploying the external-access overlay)
+  [PASS] postgresql-rw is a NodePort
+  [PASS] it uses nodePort 30432
+  [PASS] it keeps selecting the primary
+  [PASS] externalTrafficPolicy is Local
+  [PASS] the NodePort reaches the primary
+  [PASS] the NetworkPolicy has no external ipBlock allow
+  (restoring the ClusterIP Service)
+  [PASS] postgresql-rw is a ClusterIP again
+
+  ---- summary: PASS=8 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t29_failover_guard.sh
+═══════════════════════════════════════════════════════════════════════════
+### t29 failover guard
+  (declaring postgresql-1 as primary and setting the guard, as a failover would)
+  [PASS] the guard is visible in the mounted ConfigMap
+  (restarting postgresql-1: it must wait, not promote)
+  [PASS] the entrypoint blocks on the guard
+  [PASS] the candidate is NOT Ready while it waits
+  [PASS] the old primary is still the only primary
+  (restoring: postgresql-0 stays primary, postgresql-1 comes back as a standby)
+  [PASS] postgresql-1 is a standby again
+  [PASS] postgresql-0 is still the primary
+  [PASS] the guard is cleared
+
+  ---- summary: PASS=7 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t30_dr_drill.sh
+═══════════════════════════════════════════════════════════════════════════
+### t30 disaster recovery drill
+  (control row, then a backup of the application database)
+  [PASS] the backup ends OK
+  [PASS] the backup generated a dump
+  (disaster: deleting the StatefulSet and both PGDATA PVCs)
+  [PASS] no PGDATA PVC remains
+  [PASS] the backups PVC survives
+  (rebuilding from scratch)
+  [PASS] deploy.sh rebuilds the cluster
+  [PASS] the two pods are Ready again
+  [PASS] replication is active after the rebuild
+  (restoring 20261017-034604-appdb.dump into appdb with FORCE=1)
+  [PASS] the restore ends OK
+  [PASS] the control row is back in the application database
+  [PASS] the restored table is owned by the application user
+
+  ---- summary: PASS=10 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t31_single.sh
+═══════════════════════════════════════════════════════════════════════════
+### t31 single instance (no replica)
+  (applying overlays/single)
+  [PASS] only one database pod remains
+  [PASS] the single pod is Ready
+  [PASS] exactly one database pod
+  [PASS] it is the primary
+  [PASS] there is no replica Service
+  [PASS] there is no automatic-failover CronJob
+  [PASS] the backup CronJob is kept
+  [PASS] the NetworkPolicy is kept
+  [PASS] a write through postgresql-rw is visible
+  [PASS] postgresql-r serves reads from the same instance
+  [PASS] a backup still works
+  (the HA step: 2 replicas -> a hot standby appears on its own)
+  [PASS] the second pod is Ready
+  [PASS] the new pod is a hot standby
+  [PASS] replication is streaming
+  [PASS] the replicated row is visible through postgresql-r
+  (restoring the full lab overlay)
+  [PASS] two pods are Ready again
+  [PASS] replication is still streaming
+  [PASS] the replica Service is back
+
+  ---- summary: PASS=18 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t32_single_tls.sh
+═══════════════════════════════════════════════════════════════════════════
+### t32 single instance + TLS (service-ca)
+  (applying overlays/single-tls)
+  [PASS] the service-ca issues the certificate
+  [PASS] the CA bundle is injected into the ConfigMap
+  (recreating the pod to mount the certificate)
+  [PASS] the single pod is Ready again
+  [PASS] still exactly one database pod
+  [PASS] it is the primary
+  [PASS] there is no replica Service
+  [PASS] PostgreSQL reports ssl=on
+  [PASS] a client that verifies the CA connects through -rw
+  [PASS] a plaintext-only client is refused
+  (restoring the full lab overlay, without TLS)
+  [PASS] two pods are Ready again
+  [PASS] the second pod is a standby

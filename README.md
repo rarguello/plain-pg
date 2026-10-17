@@ -169,6 +169,7 @@ Not enabled by default:
 | Fencing is pod-level, not STONITH | a node partitioned from the API server can leave two primary processes |
 | Replication is asynchronous | a failover can lose the last unreplicated transactions |
 | Backups are logical (`pg_dump`), no WAL archiving | no point-in-time recovery; the copies live in the cluster |
+| No connection pooler | every client connection is a PostgreSQL process (100 per pod), and a failover drops them all: the clients must reconnect |
 | No operator, no consensus | failover is manual or an optional best-effort CronJob, not turnkey HA |
 | The single profile | a restart, an upgrade or a node failure is downtime |
 
