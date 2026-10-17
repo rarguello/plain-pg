@@ -26,8 +26,10 @@ CONNINFO="$(oc -n "$NS" exec "$REPLICA" -- cat /var/lib/pgsql/openshift-custom-r
 check_contains "primary_conninfo points at $PRIMARY" "host=${PRIMARY}.postgresql-hl" "$CONNINFO"
 check_contains "primary_conninfo uses the replication user" "user=$REPL_USER" "$CONNINFO"
 
-# The replica's walreceiver must exist on the primary
-check_eq "the primary sees 1 replica streaming" "1" "$(streaming_count "$PRIMARY")"
+# The replica's walreceiver must exist on the primary. A pod can be Ready (it
+# answers pg_isready) while its walreceiver has not connected yet, so wait.
+streaming() { [ "$(streaming_count "$PRIMARY")" = "1" ]; }
+wait_for 120 "the primary sees 1 replica streaming" streaming
 check_eq "replica application_name" "walreceiver" \
   "$(pod_psql_admin "$PRIMARY" -tAc "SELECT application_name FROM pg_stat_replication LIMIT 1")"
 
