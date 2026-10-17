@@ -28,12 +28,8 @@ digest.
 ```bash
 git clone https://github.com/rarguello/plain-pg.git && cd plain-pg
 
-# 1. the namespace, with the labels the pods expect
-oc create namespace plain-pg
-oc label namespace plain-pg \
-  pod-security.kubernetes.io/enforce=restricted \
-  pod-security.kubernetes.io/audit=restricted \
-  pod-security.kubernetes.io/warn=restricted
+# 1. the namespace, with the PodSecurity labels the pods expect
+oc apply -f manifests/base/namespace.yaml
 
 # 2. the credentials, created by hand and never committed
 oc -n plain-pg create secret generic postgresql-credentials \

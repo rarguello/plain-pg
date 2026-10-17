@@ -402,3 +402,113 @@ Verify with: ./scripts/verify-replication.sh
   (failover to postgresql-1)
   [PASS] postgresql-1 is primary
   (recreating BOTH pods at once)
+  [PASS] postgresql-1 becomes Ready again (as primary)
+  [PASS] postgresql-0 becomes Ready again (as replica)
+  [PASS] postgresql-1 is still primary
+  [PASS] postgresql-0 came back as standby
+  [PASS] replication is re-established after the full restart
+  (failback)
+  [PASS] postgresql-0 is primary again
+  [PASS] postgresql-1 is standby again
+  [PASS] postgresql-1 is standby again
+
+  ---- summary: PASS=9 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t21_pg_security.sh
+═══════════════════════════════════════════════════════════════════════════
+### t21 PostgreSQL security
+  [PASS] the app user is NOT superuser
+  [PASS] the app user can NOT create roles
+  [PASS] the app user can NOT create databases
+  [PASS] the replica rejects DDL (CREATE TABLE)
+  [PASS] pg_hba does not allow 'trust' on remote connections
+  [PASS] the superuser does not get in from another pod with a wrong password
+  [PASS] the replication user is not the owner of the app database
+
+  ---- summary: PASS=7 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t22_read_balancing.sh
+═══════════════════════════════════════════════════════════════════════════
+### t22 read load balancing (postgresql-r)
+  [PASS] postgresql-r selects every DB pod
+    distribution over 40 connections (ip count):
+      10.128.1.35 22
+      10.128.1.36 18
+  [PASS] all instances answered at least one connection
+  [PASS] no instance is starved (each got >= 4 of 40)
+  [PASS] every instance returns the same replicated row
+
+  ---- summary: PASS=4 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t23_hpa.sh
+═══════════════════════════════════════════════════════════════════════════
+### t23 HPA: scale up under read load
+  starting state: replicas=2 hpa=0
+  (deploying the read-scaling component)
+  [PASS] the HPA exists
+  [PASS] minReplicas is 2
+  [PASS] the HPA reports live metrics
+dropping old tables...
+NOTICE:  table "pgbench_accounts" does not exist, skipping
+NOTICE:  table "pgbench_branches" does not exist, skipping
+NOTICE:  table "pgbench_history" does not exist, skipping
+NOTICE:  table "pgbench_tellers" does not exist, skipping
+creating tables...
+generating data (client-side)...
+100000 of 100000 tuples (100%) of pgbench_accounts done (elapsed 0.03 s, remaining 0.00 s)
+vacuuming...
+creating primary keys...
+done in 0.18 s (drop tables 0.00 s, create tables 0.02 s, client-side generate 0.07 s, vacuum 0.04 s, primary keys 0.06 s).
+  [PASS] the HPA grows the fleet under read load
+    fleet grew to 3 pods (new: postgresql-2)
+  [PASS] postgresql-2 becomes Ready
+  [PASS] postgresql-2 is a standby
+  [PASS] postgresql-r includes the new replica without any Service change
+  [PASS] a connection through postgresql-r lands on the new replica
+  (restoring: replicas=2, hpa=0)
+  [PASS] back to 2 Ready pods
+  [PASS] the extra replicas are gone
+  [PASS] the StatefulSet is back to 2 replicas
+
+  ---- summary: PASS=11 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t24_deploy_recreate.sh
+═══════════════════════════════════════════════════════════════════════════
+### t24 deploy.sh recreates a missing StatefulSet
+  [PASS] the role ConfigMap exists
+  [PASS] the StatefulSet starts at 2 replicas
+  starting state: primary=postgresql-0 replicas=2
+  (deleting the StatefulSet, keeping the ConfigMap and the Services)
+  [PASS] the StatefulSet is gone
+  [PASS] deploy.sh recreates it and waits for the pods
+  [PASS] the recreated StatefulSet has 2 replicas
+  [PASS] a second deploy keeps 2 replicas
+  [PASS] the declared primary is unchanged
+  [PASS] the two pods are Ready again
+  [PASS] the declared primary is primary again
+  [PASS] the other pod is a standby again
+
+  ---- summary: PASS=10 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t25_metrics.sh
+═══════════════════════════════════════════════════════════════════════════
+### t25 metrics exporter
+  (deploying the metrics component)
+  [PASS] the exporter Deployment becomes Available
+  [PASS] the metrics Service exists
+  [PASS] the ServiceMonitor exists
+  [PASS] the exporter reports pg_up 1 (it reached the primary)
+  [PASS] the exporter exposes a database size metric
+  [PASS] the app user is a member of pg_monitor
+
+  ---- summary: PASS=6 FAIL=0 SKIP=0
+
+═══════════════════════════════════════════════════════════════════════════
+== t26_tls.sh
+═══════════════════════════════════════════════════════════════════════════
+### t26 TLS (service-ca)

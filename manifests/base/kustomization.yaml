@@ -7,6 +7,7 @@ kind: Kustomization
 # PostgreSQL image is pinned.
 
 resources:
+  - namespace.yaml
   - configmap-scripts.yaml
   - configmap-role.yaml
   - configmap-backup-scripts.yaml
@@ -16,7 +17,7 @@ resources:
   - cronjob-backup.yaml
   - networkpolicy.yaml
 
-# No Namespace object on purpose: this is a deployment, not an environment, and
-# creating a cluster-scoped object is the operator's decision. Create the
-# namespace (with the PodSecurity labels) first; scripts/deploy.sh does it for the
-# lab, and docs/operations.md#deploy shows the commands.
+# namespace.yaml carries the PodSecurity profile, and it is here so that
+# `oc apply -k` deploys in one command. An overlay that sets `namespace:` renames
+# it (kustomize renames a Namespace object too), labels included, so it does not
+# force the example name on anyone.

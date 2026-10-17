@@ -20,11 +20,7 @@ hand, then apply. The primary runs `initdb` and the replica `pg_basebackup` on
 startup, so there is nothing else to run.
 
 ```bash
-oc create namespace plain-pg
-oc label namespace plain-pg \
-  pod-security.kubernetes.io/enforce=restricted \
-  pod-security.kubernetes.io/audit=restricted \
-  pod-security.kubernetes.io/warn=restricted
+oc apply -f manifests/base/namespace.yaml
 # create the Secret first: the full command is under Credentials, below
 oc apply -k manifests/overlays/ha
 oc -n plain-pg get pods      # wait for 2/2 Ready
@@ -77,9 +73,10 @@ Available components: `automatic-failover`, `single-instance`, `metrics`,
 place the PostgreSQL image is pinned; it goes last, because a component's
 transformer only covers the resources accumulated before it).
 
-`plain-pg` is only the example namespace. These manifests create no Namespace
-object: create yours first (with the PodSecurity labels shown above) and set
-`namespace:` in a kustomization of your own, as in
+`plain-pg` is only the example namespace (`manifests/base/namespace.yaml`). Do not
+edit these manifests to deploy elsewhere: reference them from your own
+kustomization and set `namespace:` there. Kustomize renames the Namespace object
+too, labels included, as in
 [Deploy with your own values](#deploy-with-your-own-values). The scripts under
 `scripts/` are the test tooling and take `NAMESPACE`.
 
@@ -89,8 +86,8 @@ Nothing in this repository needs editing. Keep your own kustomization next to yo
 other manifests and reference this repository as a base. Both examples below are
 complete: `my-postgres/kustomization.yaml` in your own repository.
 
-These manifests create no Namespace object, so create yours first, with the
-PodSecurity labels the pods expect.
+The base ships the example namespace, with the PodSecurity labels the pods expect.
+Setting `namespace:` renames it, labels included, so nothing lands in `plain-pg`.
 
 ### Example 1: your namespace and your StorageClass
 
@@ -121,14 +118,11 @@ patches:
 ```
 
 ```bash
-oc create namespace my-pg
-oc label namespace my-pg \
-  pod-security.kubernetes.io/enforce=restricted \
-  pod-security.kubernetes.io/audit=restricted \
-  pod-security.kubernetes.io/warn=restricted
+oc apply -k my-postgres          # creates my-pg (with its labels) and the objects
 oc -n my-pg create secret generic postgresql-credentials ...   # see Credentials
-oc apply -k my-postgres
 ```
+
+The pods wait for the Secret; they start as soon as it exists.
 
 ### Example 2: another PostgreSQL version
 
