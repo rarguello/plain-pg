@@ -30,9 +30,18 @@ jobs:
         run: |
           printf '%s' '${{ secrets.RH_PULL_SECRET }}' > "$AUTHFILE"
           CURRENT="$(./scripts/update-digest.sh | awk '/^Digest:/{print $2}')"
-          PINNED="$(grep -oE 'sha256:[0-9a-f]{64}' manifests/overlays/ha/kustomization.yaml | head -1)"
+          # The image is pinned in one place, and the overlays only list it as a
+          # component: reading the digest from an overlay finds nothing and the
+          # comparison below can never pass.
+          PINNED="$(grep -oE 'sha256:[0-9a-f]{64}' manifests/components/image/kustomization.yaml | head -1)"
           echo "pinned=$PINNED registry=$CURRENT"
-          if [ -z "$CURRENT" ] || [ "$CURRENT" = "$PINNED" ]; then
+          # An empty value means the check itself is broken, not that the pin is
+          # current: fail loudly instead of reporting an issue nobody can read.
+          if [ -z "$CURRENT" ] || [ -z "$PINNED" ]; then
+            echo "ERROR: could not read the registry digest or the pinned digest." >&2
+            exit 1
+          fi
+          if [ "$CURRENT" = "$PINNED" ]; then
             echo "The pin is up to date."
             exit 0
           fi
