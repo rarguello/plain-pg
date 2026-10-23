@@ -79,7 +79,7 @@ check_eq "postgresql-rw was repointed automatically" "$IP_NEW" \
 
 # --- clean up the simulation ---
 oc -n "$NS" delete networkpolicy test-isolate-primary test-allow-rest --ignore-not-found >/dev/null 2>&1
-oc apply -f - >/dev/null <<'EOF'
+oc -n "$NS" apply -f - >/dev/null <<'EOF'
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
