@@ -55,3 +55,13 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value: {name: PG_REQUIRE_TLS, value: "true"}
+      # A brand-new PGDATA runs initdb before the entrypoint can apply TLS (see
+      # the scripts ConfigMap). This hook waits for the server and applies it,
+      # then reloads, so a fresh install never serves plaintext while it warms
+      # up and nothing has to be restarted by hand.
+      - op: add
+        path: /spec/template/spec/containers/0/lifecycle
+        value:
+          postStart:
+            exec:
+              command: ["/bin/bash", "/opt/app-root/src/bin/configure-and-run.sh", "tls-apply"]

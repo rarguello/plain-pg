@@ -498,9 +498,24 @@ receiver, `psql` and `pg_dump` use TLS when the server offers it
 
 **TLS is required** for TCP connections: the component sets `PG_REQUIRE_TLS=true`
 and the entrypoint turns the image's plaintext `host` rules in `pg_hba.conf` into
-`hostssl`, so a client that does not use TLS is refused. Remove that env var (or
-the component) to go back to offering TLS instead of requiring it. On a fresh
-install the first `initdb` does not pick TLS up: restart the pods once.
+`hostssl`, so a client that does not use TLS is refused. While that variable is
+set, the readiness probe also checks that the server really offers TLS, so a pod
+cannot take clients in plaintext. Remove the variable (or the component) to go
+back to offering TLS instead of requiring it.
+
+A fresh install needs no restart. The first `initdb` runs before the entrypoint
+can write the configuration, so the component adds a `postStart` hook that waits
+for the server, applies the same setup and reloads it: `ssl`, the certificate
+paths and `pg_hba.conf` are reloadable. The hook writes to the container's
+output, which does not show up in the pod log.
+
+The certificate from service-ca is signed by the cluster's service CA and issued
+for `postgresql-hl`, so it covers the in-cluster names and not the node's address.
+A client either encrypts with `sslmode=require` (no verification), or verifies the
+chain with `sslrootcert` (the CA in the `postgresql-tls-ca` ConfigMap, key
+`service-ca.crt`) and `sslmode=verify-ca`. `verify-full` fails from outside unless
+the certificate carries the address clients use, which is the reason to bring your
+own: `overlays/ha-tls-byo` with a certificate that has your SANs.
 
 ## Let another namespace reach the database
 

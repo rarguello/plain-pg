@@ -331,6 +331,34 @@ data:
       exec run-postgresql "$@"
     }
 
+    # ----------------------------------------------------------------------
+    # TLS-APPLY mode: used by the postStart hook of components/tls.
+    #
+    # The first start of a brand-new PGDATA cannot apply TLS: initdb has not
+    # created the directory yet, so start_as_primary skips ensure_tls_config.
+    # The certificate may already be mounted by then (service-ca issues it as
+    # soon as the Service exists), and PostgreSQL picks it up without a restart:
+    # ssl, the certificate paths and pg_hba.conf are all reloadable.
+    #
+    # This waits for the server, applies the same setup and reloads. It is best
+    # effort and always exits 0: a pod that still has no TLS is not Ready, which
+    # is what healthcheck.sh enforces when PG_REQUIRE_TLS is set.
+    # ----------------------------------------------------------------------
+    if [ "${1:-}" = "tls-apply" ]; then
+      for _ in $(seq 1 60); do
+        pg_isready -q -h 127.0.0.1 -p "${PGPORT:-5432}" && break
+        sleep 2
+      done
+      if [ -f "$PGDATA/PG_VERSION" ]; then
+        ensure_tls_config
+        psql -h 127.0.0.1 -p "${PGPORT:-5432}" -U postgres -d postgres \
+          -tAc 'SELECT pg_reload_conf()' >/dev/null 2>&1 || true
+        log "TLS setup re-applied after start (ssl=$(psql -h 127.0.0.1 \
+          -p "${PGPORT:-5432}" -U postgres -tAc 'SHOW ssl' 2>/dev/null || echo unknown))"
+      fi
+      exit 0
+    fi
+
     if [ "$POD_NAME" = "$PRIMARY_POD" ]; then
       log "desired role: PRIMARY"
       start_as_primary "$@"
@@ -359,7 +387,16 @@ data:
     pg_isready -q -h 127.0.0.1 -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" || exit 1
     [ "$MODE" = "live" ] && exit 0
 
-    # 2. If this pod is the declared primary, it must accept writes.
+    # 2. With TLS required, a server that does not offer it must not be Ready,
+    #    because it would accept plaintext connections. The postStart hook of
+    #    components/tls applies the certificate on the first start of a fresh
+    #    PGDATA, so this is normally immediate.
+    if [ "${PG_REQUIRE_TLS:-false}" = "true" ]; then
+      PGSSLMODE=require psql -h 127.0.0.1 -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" \
+        -tAc 'SELECT 1' >/dev/null 2>&1 || exit 1
+    fi
+
+    # 3. If this pod is the declared primary, it must accept writes.
     ROLE_FILE="${ROLE_FILE:-/etc/plain-pg/role/PRIMARY_POD}"
     POD_NAME="${HOSTNAME:-$(uname -n)}"
     DECLARED_PRIMARY="$(tr -d '[:space:]' < "$ROLE_FILE" 2>/dev/null || true)"

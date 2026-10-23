@@ -117,18 +117,24 @@ patches:
 ```bash
 oc apply -k my-postgres
 oc -n my-pg create secret generic postgresql-credentials ...   # see Credentials
-oc -n my-pg delete pod postgresql-0 postgresql-1               # TLS: one restart on a fresh install
 oc get nodes -o wide                                           # the node address
 psql "host=<node-ip> port=30432 dbname=appdb user=app sslmode=require"
 ```
 
-Four things are worth knowing before you copy it. The Secret is an input, so the
-pods wait for it. TLS is required, and on a fresh install the certificate arrives
-after the first `initdb`, which is why the pods are restarted once. The NodePort
-is published on every node's address, so keep it on a private interface or behind
-a firewall, and narrow the `ipBlock` to your clients. And a failover repoints
-`postgresql-rw`, so external clients follow the new primary without changing
-anything on their side.
+Four things are worth knowing before you copy it:
+
+- The Secret is an input: the pods wait for it.
+- TLS is required, and a pod that is not offering it is not Ready. The certificate
+  is applied on the first start, with nothing to restart. It comes from
+  service-ca, signed by the cluster's own CA and issued for the in-cluster names:
+  `sslmode=require` encrypts without verifying, `verify-ca` needs the CA from the
+  `postgresql-tls-ca` ConfigMap, and `verify-full` fails from outside because the
+  node address is not in the certificate. Bring your own if your clients must
+  trust it by name (`ha-tls-byo`).
+- The NodePort is published on every node's address: keep it on a private
+  interface or behind a firewall, and narrow the `ipBlock` to your clients.
+- A failover repoints `postgresql-rw`, so external clients follow the new primary
+  without changing anything on their side.
 
 ## Profiles
 
