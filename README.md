@@ -86,7 +86,6 @@ resources:
 
 components:
   - github.com/rarguello/plain-pg//manifests/components/tls?ref=main
-  - github.com/rarguello/plain-pg//manifests/components/tls-service-ca?ref=main
   - github.com/rarguello/plain-pg//manifests/components/external-access?ref=main
 
 patches:
@@ -114,23 +113,42 @@ patches:
             cidr: 203.0.113.0/24
 ```
 
+`components/tls` mounts a certificate and requires TLS, but it does not create it:
+the certificate is yours, and the names in it decide what your clients can verify.
+These commands use a self-signed one for the address clients connect to:
+
 ```bash
+# 1. the objects; the pods wait for the credentials Secret
 oc apply -k my-postgres
+
+# 2. the certificate and the two objects it lives in. The SANs must cover the
+#    address clients use: here the node, plus the Service name inside the cluster.
+openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
+  -keyout tls.key -out tls.crt -subj "/CN=<node-ip>" \
+  -addext "subjectAltName=IP:<node-ip>,DNS:postgresql-rw.my-pg.svc"
+oc -n my-pg create secret tls postgresql-tls --cert=tls.crt --key=tls.key
+oc -n my-pg create configmap postgresql-tls-ca --from-file=ca.crt=tls.crt
+
+# 3. the credentials last: they are what starts the pods, with TLS already mounted
 oc -n my-pg create secret generic postgresql-credentials ...   # see Credentials
-oc get nodes -o wide                                           # the node address
-psql "host=<node-ip> port=30432 dbname=appdb user=app sslmode=require"
+
+# 4. from your machine, verifying the certificate
+psql "host=<node-ip> port=30432 dbname=appdb user=app \
+      sslmode=verify-full sslrootcert=tls.crt"
 ```
 
 Four things are worth knowing before you copy it:
 
-- The Secret is an input: the pods wait for it.
-- TLS is required, and a pod that is not offering it is not Ready. The certificate
-  is applied on the first start, with nothing to restart. It comes from
-  service-ca, signed by the cluster's own CA and issued for the in-cluster names:
-  `sslmode=require` encrypts without verifying, `verify-ca` needs the CA from the
-  `postgresql-tls-ca` ConfigMap, and `verify-full` fails from outside because the
-  node address is not in the certificate. Bring your own if your clients must
-  trust it by name (`ha-tls-byo`).
+- The Secret is an input: the pods wait for it, which is also why it is created
+  last here.
+- The certificate is an input too. While TLS is required, a pod that is not
+  offering it is not Ready, so the database never takes clients in plaintext. A
+  self-signed certificate is enough to start; a real deployment uses one from your
+  PKI, and `overlays/ha-tls-byo` is the same shape inside this repository. If you
+  would rather let the cluster issue it, add `components/tls-service-ca` and drop
+  the two objects above: its certificate covers the in-cluster names only, so
+  clients use `sslmode=require`, or `verify-ca` with the CA from the
+  `postgresql-tls-ca` ConfigMap.
 - The NodePort is published on every node's address: keep it on a private
   interface or behind a firewall, and narrow the `ipBlock` to your clients.
 - A failover repoints `postgresql-rw`, so external clients follow the new primary
