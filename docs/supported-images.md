@@ -10,7 +10,7 @@ suite, but they are not supported.
 
 | Image | PostgreSQL | Suite | Transcript |
 |---|---|---:|---|
-| `rhel10/postgresql-18` | 18 | 36/36 | [2026-10-23](evidence/2026-10-23-full-suite.txt) |
+| `rhel10/postgresql-18` | 18 | 36/36 | [2026-10-23](evidence/2026-10-23-tls-first-start-full-suite.txt) |
 | `rhel9/postgresql-18` | 18 | 36/36 | [2026-10-17](evidence/2026-10-17-rhel9-postgresql-18-full-suite.txt) |
 | `rhel9/postgresql-16` | 16 | 36/36 | [2026-10-17](evidence/2026-10-17-rhel9-postgresql-16-full-suite.txt) |
 | `rhel10/postgresql-16` | 16 | 36/36 | [2026-10-17](evidence/2026-10-17-rhel10-postgresql-16-full-suite.txt) |
