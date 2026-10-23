@@ -64,6 +64,72 @@ Deploying this in your own repository, with your own namespace, StorageClass or
 image, needs no editing: see
 [Deploy with your own values](docs/operations.md#deploy-with-your-own-values).
 
+## Compose what you need
+
+The deployment is a kustomize base plus optional components, so your own setup is
+one file. This one gives you a primary with a hot standby, 10Gi of data, a
+NodePort for clients outside the cluster, automatic failover, and TLS that the
+server requires (plaintext connections are refused), without editing anything
+here:
+
+```yaml
+# my-postgres/kustomization.yaml, in your own repository
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: my-pg
+
+# The HA profile: two pods, postgresql-ro, and the failover CronJob. Pin a tag
+# or a commit instead of main when you want what you deploy to stop moving.
+resources:
+  - github.com/rarguello/plain-pg//manifests/overlays/ha?ref=main
+
+components:
+  - github.com/rarguello/plain-pg//manifests/components/tls?ref=main
+  - github.com/rarguello/plain-pg//manifests/components/tls-service-ca?ref=main
+  - github.com/rarguello/plain-pg//manifests/components/external-access?ref=main
+
+patches:
+  # 10Gi for the data and for the backups (the default is 2Gi).
+  - target: {kind: StatefulSet, name: postgresql}
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 10Gi
+  - target: {kind: PersistentVolumeClaim, name: postgresql-backups}
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 10Gi
+
+  # Your clients' network. Add to the shipped rule: replacing it would also shut
+  # out the pods in the namespace, and the failover CronJob reads that as a dead
+  # primary.
+  - target: {kind: NetworkPolicy, name: postgresql-ingress}
+    patch: |-
+      - op: add
+        path: /spec/ingress/0/from/-
+        value:
+          ipBlock:
+            cidr: 203.0.113.0/24
+```
+
+```bash
+oc apply -k my-postgres
+oc -n my-pg create secret generic postgresql-credentials ...   # see Credentials
+oc -n my-pg delete pod postgresql-0 postgresql-1               # TLS: one restart on a fresh install
+oc get nodes -o wide                                           # the node address
+psql "host=<node-ip> port=30432 dbname=appdb user=app sslmode=require"
+```
+
+Four things are worth knowing before you copy it. The Secret is an input, so the
+pods wait for it. TLS is required, and on a fresh install the certificate arrives
+after the first `initdb`, which is why the pods are restarted once. The NodePort
+is published on every node's address, so keep it on a private interface or behind
+a firewall, and narrow the `ipBlock` to your clients. And a failover repoints
+`postgresql-rw`, so external clients follow the new primary without changing
+anything on their side.
+
 ## Profiles
 
 An **overlay** is a kustomize directory that selects which objects are deployed; a

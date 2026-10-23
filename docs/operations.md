@@ -86,7 +86,9 @@ too, labels included, as in
 
 Nothing in this repository needs editing. Keep your own kustomization next to your
 other manifests and reference this repository as a base. Both examples below are
-complete: `my-postgres/kustomization.yaml` in your own repository.
+complete: `my-postgres/kustomization.yaml` in your own repository. For a complete
+one, with a hot standby, 10Gi, TLS and remote access, see
+[Compose what you need](../README.md#compose-what-you-need).
 
 The base ships the example namespace, with the PodSecurity labels the pods expect.
 Setting `namespace:` renames it, labels included, so nothing lands in `plain-pg`.
@@ -562,13 +564,20 @@ psql -h <node-ip> -p 30432 -U app -d appdb
 must line up:
 
 - **The NetworkPolicy still blocks external clients.** Add an `ipBlock` for the
-  client network, as narrow as possible. The Service uses
-  `externalTrafficPolicy: Local`, so the policy matches the client's real IP:
+  client network, as narrow as possible, to the rule that is already there. The
+  Service uses `externalTrafficPolicy: Local`, so the policy matches the client's
+  real IP:
 
 ```bash
-oc -n plain-pg patch networkpolicy postgresql-ingress --type merge -p \
-  '{"spec":{"ingress":[{"from":[{"ipBlock":{"cidr":"203.0.113.0/24"}}],"ports":[{"protocol":"TCP","port":5432}]}]}}'
+oc -n plain-pg patch networkpolicy postgresql-ingress --type json -p \
+  '[{"op":"add","path":"/spec/ingress/0/from/-","value":{"ipBlock":{"cidr":"203.0.113.0/24"}}}]'
 ```
+
+Add, do not replace. A patch that sends a whole `ingress` array (`--type merge`
+with `spec.ingress`) replaces the rule that lets the pods in the namespace in, and
+then the failover CronJob, the metrics exporter and the backups cannot reach the
+database. The CronJob reads an unreachable primary as a dead one: in the test that
+found this, the automatic failover promoted the standby two minutes later.
 
 - **Use TLS.** Combine it with `ha-tls` or `ha-tls-byo`; otherwise the password
   and the data cross the network in clear text. Clients then use
