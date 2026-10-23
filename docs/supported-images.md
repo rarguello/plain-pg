@@ -10,7 +10,7 @@ suite, but they are not supported.
 
 | Image | PostgreSQL | Suite | Transcript |
 |---|---|---:|---|
-| `rhel10/postgresql-18` | 18 | 36/36 | [2026-10-17](evidence/2026-10-17-full-suite.txt) |
+| `rhel10/postgresql-18` | 18 | 36/36 | [2026-10-23](evidence/2026-10-23-full-suite.txt) |
 | `rhel9/postgresql-18` | 18 | 36/36 | [2026-10-17](evidence/2026-10-17-rhel9-postgresql-18-full-suite.txt) |
 | `rhel9/postgresql-16` | 16 | 36/36 | [2026-10-17](evidence/2026-10-17-rhel9-postgresql-16-full-suite.txt) |
 | `rhel10/postgresql-16` | 16 | 36/36 | [2026-10-17](evidence/2026-10-17-rhel10-postgresql-16-full-suite.txt) |
@@ -22,7 +22,8 @@ not tested.
 
 Each row is one full run of `tests/run-all.sh` against a freshly deployed lab with
 that image. The transcript is the evidence; a run is only counted when it reports
-`RESULT: ALL OK`.
+`RESULT: ALL OK`. The supported row links the run made with the current pin; the
+earlier runs of the same image stay in `docs/evidence/`.
 
 A green run proves that a fresh install with that image works. It does not prove
 that a migration from another major version is safe: the suite never upgrades an
